@@ -1,0 +1,1038 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>ScanArch Studio Pro - Relevamiento AR, Importación de Mensura y Modelado 3D</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  
+  <!-- Three.js, Controls & Exporters -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/exporters/OBJExporter.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/exporters/GLTFExporter.js"></script>
+
+  <!-- PDF.js para lectura de planos en PDF -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script>pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';</script>
+
+  <!-- DXF Parser para lectura de planos CAD -->
+  <script src="https://cdn.jsdelivr.net/npm/dxf-parser@1.1.2/dist/dxf-parser.min.js"></script>
+
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      touch-action: none;
+      user-select: none;
+      background-color: #090d16;
+      color: #f1f5f9;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+
+    .blueprint-grid {
+      background-color: #0b1329;
+      background-image: 
+        linear-gradient(rgba(56, 189, 248, 0.25) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(56, 189, 248, 0.25) 1px, transparent 1px),
+        linear-gradient(rgba(30, 58, 138, 0.15) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(30, 58, 138, 0.15) 1px, transparent 1px);
+      background-size: 100px 100px, 100px 100px, 20px 20px, 20px 20px;
+      background-position: -1px -1px;
+    }
+
+    .glass-panel {
+      background: rgba(15, 23, 42, 0.85);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .reticle-ring {
+      animation: pulse-ring 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    }
+
+    @keyframes pulse-ring {
+      0%, 100% { transform: scale(1); opacity: 0.8; }
+      50% { transform: scale(1.1); opacity: 0.4; }
+    }
+  </style>
+</head>
+<body class="flex flex-col h-full w-full">
+
+  <!-- BARRA SUPERIOR / HEADER -->
+  <header class="h-14 bg-slate-900/90 backdrop-blur border-b border-slate-800 px-4 flex items-center justify-between z-30 flex-shrink-0">
+    <div class="flex items-center gap-3">
+      <div class="w-9 h-9 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 shadow-inner">
+        <i data-lucide="layers" class="w-5 h-5"></i>
+      </div>
+      <div>
+        <h1 class="text-sm font-bold tracking-wide text-white leading-tight flex items-center gap-2">
+          ScanArch Studio Pro <span class="px-1.5 py-0.5 rounded text-[9px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">v2.0 3D/CAD</span>
+        </h1>
+        <p class="text-[10px] text-slate-400 font-mono">IMPORTACIÓN DE MENSURA &middot; RELEVAMIENTO AR &middot; MODELADO 3D</p>
+      </div>
+    </div>
+
+    <!-- Indicadores Rápidos & Acciones Principales -->
+    <div class="flex items-center gap-3 text-xs font-mono">
+      <div class="hidden md:flex items-center gap-4">
+        <div class="flex flex-col items-end">
+          <span class="text-slate-400 text-[10px]">ÁREA PLANTA</span>
+          <span id="metric-area-top" class="text-emerald-400 font-bold">0.00 m²</span>
+        </div>
+        <div class="flex flex-col items-end">
+          <span class="text-slate-400 text-[10px]">VÉRTICES</span>
+          <span id="metric-points-count" class="text-sky-400 font-bold">0 pts</span>
+        </div>
+      </div>
+
+      <!-- Botón Cargar Mensura / Archivo -->
+      <label class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-medium text-xs cursor-pointer shadow-lg shadow-sky-950 transition active:scale-95">
+        <i data-lucide="upload" class="w-4 h-4"></i>
+        <span class="hidden sm:inline">Importar Mensura</span>
+        <input type="file" id="input-plan-file" accept="image/*,.pdf,.dxf" class="hidden">
+      </label>
+
+      <!-- Botón Exportar Selector -->
+      <div class="relative group">
+        <button class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-medium text-xs shadow-lg shadow-emerald-950 transition active:scale-95">
+          <i data-lucide="download" class="w-4 h-4"></i>
+          <span>Exportar</span>
+          <i data-lucide="chevron-down" class="w-3.5 h-3.5"></i>
+        </button>
+
+        <div class="absolute right-0 top-full mt-1 w-48 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl hidden group-hover:block z-50 py-1">
+          <button id="btn-export-dxf" class="w-full px-3 py-2 text-left hover:bg-slate-800 text-xs flex items-center gap-2 text-slate-200">
+            <i data-lucide="file-text" class="w-4 h-4 text-sky-400"></i> Plano CAD (.DXF 2D)
+          </button>
+          <button id="btn-export-obj" class="w-full px-3 py-2 text-left hover:bg-slate-800 text-xs flex items-center gap-2 text-slate-200">
+            <i data-lucide="box" class="w-4 h-4 text-emerald-400"></i> Modelo 3D (.OBJ)
+          </button>
+          <button id="btn-export-glb" class="w-full px-3 py-2 text-left hover:bg-slate-800 text-xs flex items-center gap-2 text-slate-200">
+            <i data-lucide="layers" class="w-4 h-4 text-purple-400"></i> Modelo 3D (.GLB / GLTF)
+          </button>
+          <button id="btn-export-ply" class="w-full px-3 py-2 text-left hover:bg-slate-800 text-xs flex items-center gap-2 text-slate-200">
+            <i data-lucide="cloud" class="w-4 h-4 text-amber-400"></i> Nube Puntos (.PLY)
+          </button>
+          <button id="btn-export-png" class="w-full px-3 py-2 text-left hover:bg-slate-800 text-xs flex items-center gap-2 text-slate-200 border-t border-slate-800">
+            <i data-lucide="image" class="w-4 h-4 text-rose-400"></i> Imagen Plano (.PNG)
+          </button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- CONTENEDOR PRINCIPAL DE PANTALLAS -->
+  <main class="relative flex-1 w-full h-full overflow-hidden">
+
+    <!-- VISTA 1: CÁMARA Y RELEVAMIENTO AR EN TIEMPO REAL -->
+    <div id="view-camera" class="absolute inset-0 z-10 flex flex-col justify-between">
+      <video id="ar-video" autoplay playsinline muted class="absolute inset-0 w-full h-full object-cover"></video>
+      <div class="absolute inset-0 bg-gradient-to-b from-black/60 via-transparent to-black/80 pointer-events-none"></div>
+
+      <!-- HUD Superior en Cámara -->
+      <div class="relative p-4 flex justify-between items-start pointer-events-auto">
+        <div class="glass-panel rounded-xl p-3 text-xs font-mono space-y-1">
+          <div class="flex items-center gap-2">
+            <span class="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+            <span class="text-emerald-400 font-bold uppercase tracking-wider text-[11px]">Cámara y Giroscopio</span>
+          </div>
+          <div class="text-slate-300">Rumbo: <span id="hud-heading" class="text-white font-bold">0°</span></div>
+          <div class="text-slate-300">Vértices Fijados: <span id="hud-pts" class="text-white font-bold">0</span></div>
+        </div>
+
+        <div class="flex items-center gap-2">
+          <button id="btn-request-gyro" class="hidden px-3 py-2 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-300 font-medium text-xs flex items-center gap-1.5">
+            <i data-lucide="compass" class="w-4 h-4"></i> Activar Giroscopio (iOS)
+          </button>
+          <button id="btn-switch-camera" class="w-10 h-10 rounded-full glass-panel flex items-center justify-center text-white active:scale-95">
+            <i data-lucide="refresh-cw" class="w-5 h-5"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Retículo Central (Aim Meter) -->
+      <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
+        <div class="relative flex items-center justify-center w-28 h-28">
+          <div class="absolute inset-0 rounded-full border border-emerald-400/40 reticle-ring"></div>
+          <div class="w-12 h-12 rounded-full border-2 border-emerald-400 flex items-center justify-center shadow-[0_0_15px_rgba(52,211,153,0.5)]">
+            <div class="w-2 h-2 rounded-full bg-emerald-400"></div>
+          </div>
+          <div class="absolute w-full h-[1px] bg-emerald-400/40"></div>
+          <div class="absolute h-full w-[1px] bg-emerald-400/40"></div>
+          <div class="absolute -bottom-10 px-3 py-1 rounded-lg bg-black/80 border border-emerald-500/50 text-xs font-mono text-emerald-300 font-bold whitespace-nowrap shadow-lg">
+            Tramo Actual: <span id="hud-segment-dist">2.50</span> m
+          </div>
+        </div>
+      </div>
+
+      <!-- Controles Inferiores AR -->
+      <div class="relative p-4 pb-6 flex flex-col gap-3 pointer-events-auto">
+        <!-- Ajuste Métrico Manual del Tramo -->
+        <div class="flex items-center justify-center gap-3">
+          <button id="btn-dist-dec" class="px-3 py-2 rounded-xl glass-panel text-white font-mono text-xs font-bold active:scale-90">- 0.25m</button>
+          <div class="px-5 py-2 rounded-xl bg-emerald-950/90 border border-emerald-500/50 text-emerald-400 font-mono text-xs font-bold text-center min-w-[130px] shadow-lg">
+            <span id="label-curr-dist" class="text-sm">2.50</span> METROS
+          </div>
+          <button id="btn-dist-inc" class="px-3 py-2 rounded-xl glass-panel text-white font-mono text-xs font-bold active:scale-90">+ 0.25m</button>
+        </div>
+
+        <!-- Acciones AR -->
+        <div class="grid grid-cols-3 gap-2">
+          <button id="btn-reset" class="flex flex-col items-center justify-center py-2.5 rounded-xl bg-rose-500/20 border border-rose-500/30 text-rose-300 font-semibold text-xs active:scale-95">
+            <i data-lucide="trash-2" class="w-5 h-5 mb-0.5"></i>
+            <span>Reiniciar</span>
+          </button>
+          <button id="btn-mark-corner" class="flex flex-col items-center justify-center py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs shadow-lg shadow-emerald-950 active:scale-95">
+            <i data-lucide="map-pin" class="w-5 h-5 mb-0.5"></i>
+            <span>Fijar Vértice</span>
+          </button>
+          <button id="btn-close-polygon" class="flex flex-col items-center justify-center py-2.5 rounded-xl bg-sky-500/20 border border-sky-500/30 text-sky-300 font-semibold text-xs active:scale-95">
+            <i data-lucide="check-circle" class="w-5 h-5 mb-0.5"></i>
+            <span>Cerrar Planta</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- VISTA 2: PLANO 2D & EDITOR CAD DE MENSURA -->
+    <div id="view-cad" class="absolute inset-0 z-0 blueprint-grid flex flex-col hidden">
+      <!-- Barra Herramientas CAD -->
+      <div class="p-3 bg-slate-900/90 border-b border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs font-mono">
+        <div class="flex items-center gap-2">
+          <span class="text-sky-400 font-bold flex items-center gap-1.5">
+            <i data-lucide="drafting-compass" class="w-4 h-4"></i> EDITOR DE PLANO 2D
+          </span>
+          <span class="text-slate-500">|</span>
+          <span id="label-scale-info" class="text-slate-300">Escala: 1m = <span id="val-px-per-m">50</span>px</span>
+        </div>
+
+        <div class="flex items-center gap-2">
+          <!-- Modos de Edición CAD -->
+          <div class="flex bg-slate-800 rounded-lg p-0.5 border border-slate-700">
+            <button id="tool-select" class="px-2.5 py-1 rounded-md bg-sky-600 text-white font-medium text-[11px] flex items-center gap-1">
+              <i data-lucide="mouse-pointer" class="w-3.5 h-3.5"></i> Seleccionar
+            </button>
+            <button id="tool-draw-wall" class="px-2.5 py-1 rounded-md hover:bg-slate-700 text-slate-300 text-[11px] flex items-center gap-1">
+              <i data-lucide="minus" class="w-3.5 h-3.5"></i> Trazar Muro
+            </button>
+            <button id="tool-add-door" class="px-2.5 py-1 rounded-md hover:bg-slate-700 text-slate-300 text-[11px] flex items-center gap-1">
+              <i data-lucide="door-open" class="w-3.5 h-3.5"></i> Puerta
+            </button>
+            <button id="tool-add-window" class="px-2.5 py-1 rounded-md hover:bg-slate-700 text-slate-300 text-[11px] flex items-center gap-1">
+              <i data-lucide="app-window" class="w-3.5 h-3.5"></i> Ventana
+            </button>
+            <button id="tool-calibrate" class="px-2.5 py-1 rounded-md hover:bg-slate-700 text-amber-400 text-[11px] flex items-center gap-1">
+              <i data-lucide="ruler" class="w-3.5 h-3.5"></i> Calibrar Escala
+            </button>
+          </div>
+
+          <button id="btn-auto-vectorize" class="px-2.5 py-1 rounded-lg bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/30 font-medium text-[11px] flex items-center gap-1">
+            <i data-lucide="wand-2" class="w-3.5 h-3.5"></i> Vectorizar Imagen
+          </button>
+        </div>
+      </div>
+
+      <!-- Canvas 2D interactivo -->
+      <div class="relative flex-1 w-full h-full overflow-hidden">
+        <canvas id="cad-canvas" class="w-full h-full cursor-crosshair"></canvas>
+        
+        <!-- Banner flotante cuando hay plano importado -->
+        <div id="plan-loaded-banner" class="hidden absolute top-4 left-4 glass-panel rounded-xl p-3 max-w-sm text-xs space-y-1.5 z-20">
+          <div class="flex items-center justify-between text-sky-400 font-bold">
+            <span class="flex items-center gap-1.5"><i data-lucide="file-check" class="w-4 h-4"></i> Mensura Importada</span>
+            <button id="btn-remove-plan-bg" class="text-slate-400 hover:text-rose-400"><i data-lucide="x" class="w-4 h-4"></i></button>
+          </div>
+          <p class="text-[11px] text-slate-300">Podés calibrar la escala trazando una línea sobre una cota conocida, o usar las herramientas para dibujar muros sobre la imagen.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- VISTA 3: MODELADOR Y VISOR ARQUITECTÓNICO 3D (THREE.JS) -->
+    <div id="view-3d" class="absolute inset-0 z-0 bg-slate-950 hidden">
+      <div id="three-container" class="w-full h-full"></div>
+
+      <!-- Ajustes 3D Superpuestos -->
+      <div class="absolute top-4 left-4 glass-panel rounded-xl p-3 text-xs font-mono space-y-2 z-20 max-w-xs">
+        <div class="font-bold text-sky-400 border-b border-slate-700/60 pb-1 flex items-center gap-1.5">
+          <i data-lucide="sliders" class="w-4 h-4"></i> Parámetros de Extrusión 3D
+        </div>
+        <div class="flex items-center justify-between gap-4">
+          <label class="text-slate-300 text-[11px]">Altura Muros:</label>
+          <input type="number" id="input-wall-height" value="2.60" step="0.1" min="1" max="10" class="w-16 bg-slate-800 border border-slate-700 rounded px-2 py-0.5 text-right font-bold text-emerald-400 text-xs">
+        </div>
+        <div class="flex items-center justify-between gap-4">
+          <label class="text-slate-300 text-[11px]">Espesor Muros:</label>
+          <input type="number" id="input-wall-thickness" value="0.20" step="0.05" min="0.05" max="1.0" class="w-16 bg-slate-800 border border-slate-700 rounded px-2 py-0.5 text-right font-bold text-sky-400 text-xs">
+        </div>
+        <div class="flex items-center justify-between gap-4 border-t border-slate-800 pt-1.5">
+          <label class="text-slate-300 text-[11px]">Modo Render:</label>
+          <select id="select-render-mode" class="bg-slate-800 border border-slate-700 rounded px-2 py-0.5 text-xs text-slate-200">
+            <option value="solid">Sólido Arquitectónico</option>
+            <option value="wireframe">Estructura de Alambre</option>
+            <option value="pointcloud">Nube de Puntos LiDAR</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- HUD Inferior 3D -->
+      <div class="absolute bottom-4 left-4 right-4 flex items-center justify-between pointer-events-none text-xs font-mono">
+        <div class="glass-panel px-3 py-2 rounded-xl text-slate-300 pointer-events-auto">
+          <div>Muros 3D: <span id="hud-3d-walls" class="text-sky-400 font-bold">0</span></div>
+          <div>Aberturas: <span id="hud-3d-openings" class="text-amber-400 font-bold">0</span></div>
+        </div>
+        <div class="glass-panel px-3 py-2 rounded-xl text-[11px] text-slate-400 text-right pointer-events-auto hidden sm:block">
+          Navegación 3D: Clic Izq: Rotar &middot; Clic Der: Paneo &middot; Rueda: Zoom
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- PANEL INFERIOR DE NAVEGACIÓN POR PESTAÑAS -->
+  <nav class="h-16 bg-slate-900 border-t border-slate-800 grid grid-cols-3 z-30 flex-shrink-0">
+    <button id="tab-cam" class="flex flex-col items-center justify-center gap-1 text-emerald-400 font-medium text-[11px]">
+      <i data-lucide="camera" class="w-5 h-5"></i>
+      <span>1. Relevamiento AR</span>
+    </button>
+    <button id="tab-cad" class="flex flex-col items-center justify-center gap-1 text-slate-400 font-medium text-[11px] hover:text-white transition">
+      <i data-lucide="drafting-compass" class="w-5 h-5"></i>
+      <span>2. Mensura y Plano 2D</span>
+    </button>
+    <button id="tab-3d" class="flex flex-col items-center justify-center gap-1 text-slate-400 font-medium text-[11px] hover:text-white transition">
+      <i data-lucide="box" class="w-5 h-5"></i>
+      <span>3. Diseño 3D Arquitectónico</span>
+    </button>
+  </nav>
+
+  <!-- LÓGICA PRINCIPAL DE LA APLICACIÓN -->
+  <script>
+    lucide.createIcons();
+
+    // ESTADO GLOBAL DE LA APLICACIÓN
+    const state = {
+      points: [],              // Vértices del perímetro [{x, y}] en metros
+      openings: [],            // Aberturas [{type: 'door'|'window', wallIndex, ratio: 0.5, width: 0.9}]
+      currentDistance: 2.50,   // Distancia métrica objetivo para siguiente punto
+      currentHeading: 0,       // Rumbo giroscópico (0-360°)
+      wallHeight: 2.60,        // Altura de muros en metros
+      wallThickness: 0.20,     // Espesor de muros en metros
+      isClosed: false,         // Polígono de planta cerrado
+      cameraFacing: 'environment',
+      activeTab: 'cam',        // 'cam' | 'cad' | '3d'
+      
+      // Estado del Plano de Mensura Cargado
+      planImage: null,         // Image Object si se carga imagen o PDF
+      planDxfData: null,       // Datos parseados si se carga DXF
+      pxPerMeter: 50,          // Escala del canvas CAD (píxeles por metro)
+      panOffset: { x: 0, y: 0 },// Desplazamiento de vista en canvas CAD
+      currentTool: 'select',   // 'select' | 'draw-wall' | 'add-door' | 'add-window' | 'calibrate'
+      calibrationStart: null,  // Punto de inicio para calibración de escala
+      renderMode: 'solid'      // 'solid' | 'wireframe' | 'pointcloud'
+    };
+
+    // REFERENCIAS DEL DOM
+    const video = document.getElementById('ar-video');
+    const hudHeading = document.getElementById('hud-heading');
+    const hudPts = document.getElementById('hud-pts');
+    const hudSegmentDist = document.getElementById('hud-segment-dist');
+    const labelCurrDist = document.getElementById('label-curr-dist');
+    const metricAreaTop = document.getElementById('metric-area-top');
+    const metricPointsCount = document.getElementById('metric-points-count');
+
+    const viewCamera = document.getElementById('view-camera');
+    const viewCad = document.getElementById('view-cad');
+    const view3D = document.getElementById('view-3d');
+
+    const tabCam = document.getElementById('tab-cam');
+    const tabCad = document.getElementById('tab-cad');
+    const tab3D = document.getElementById('tab-3d');
+
+    const cadCanvas = document.getElementById('cad-canvas');
+    const cadCtx = cadCanvas.getContext('2d');
+    const threeContainer = document.getElementById('three-container');
+
+    // -------------------------------------------------------------
+    // 1. GESTIÓN DE CÁMARA Y GIROSCOPIO (iOS & Android)
+    // -------------------------------------------------------------
+    let currentStream = null;
+    async function startCamera() {
+      if (currentStream) {
+        currentStream.getTracks().forEach(t => t.stop());
+      }
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: state.cameraFacing, width: { ideal: 1920 }, height: { ideal: 1080 } },
+          audio: false
+        });
+        currentStream = stream;
+        video.srcObject = stream;
+      } catch (err) {
+        console.warn("No se pudo iniciar la cámara:", err);
+      }
+    }
+
+    function initSensors() {
+      if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+        // En iOS Safari se requiere permiso explícito del usuario
+        const btnGyro = document.getElementById('btn-request-gyro');
+        btnGyro.classList.remove('hidden');
+        btnGyro.addEventListener('click', async () => {
+          try {
+            const resp = await DeviceOrientationEvent.requestPermission();
+            if (resp === 'granted') {
+              btnGyro.classList.add('hidden');
+              attachGyroListener();
+            }
+          } catch (e) { console.error(e); }
+        });
+      } else {
+        attachGyroListener();
+      }
+    }
+
+    function attachGyroListener() {
+      window.addEventListener('deviceorientation', (e) => {
+        let heading = 0;
+        if (e.webkitCompassHeading) {
+          heading = e.webkitCompassHeading;
+        } else if (e.alpha !== null) {
+          heading = 360 - e.alpha;
+        }
+        state.currentHeading = Math.round(heading % 360);
+        hudHeading.innerText = `${state.currentHeading}°`;
+      }, true);
+    }
+
+    // -------------------------------------------------------------
+    // 2. CONTROLES Y MARCADO DE VÉRTICES AR
+    // -------------------------------------------------------------
+    document.getElementById('btn-dist-inc').addEventListener('click', () => {
+      state.currentDistance = parseFloat((state.currentDistance + 0.25).toFixed(2));
+      updateDistLabels();
+    });
+
+    document.getElementById('btn-dist-dec').addEventListener('click', () => {
+      if (state.currentDistance > 0.25) {
+        state.currentDistance = parseFloat((state.currentDistance - 0.25).toFixed(2));
+        updateDistLabels();
+      }
+    });
+
+    function updateDistLabels() {
+      const formatted = state.currentDistance.toFixed(2);
+      labelCurrDist.innerText = formatted;
+      hudSegmentDist.innerText = formatted;
+    }
+
+    document.getElementById('btn-mark-corner').addEventListener('click', () => {
+      if (state.isClosed) return;
+
+      if (state.points.length === 0) {
+        state.points.push({ x: 0, y: 0 });
+      } else {
+        const lastPt = state.points[state.points.length - 1];
+        const rad = (state.currentHeading * Math.PI) / 180;
+        const nextX = parseFloat((lastPt.x + Math.sin(rad) * state.currentDistance).toFixed(3));
+        const nextY = parseFloat((lastPt.y + Math.cos(rad) * state.currentDistance).toFixed(3));
+        state.points.push({ x: nextX, y: nextY });
+      }
+
+      updateMetrics();
+      renderCAD();
+      rebuild3DScene();
+    });
+
+    document.getElementById('btn-close-polygon').addEventListener('click', () => {
+      if (state.points.length < 3) {
+        alert("Se necesitan al menos 3 vértices para cerrar el plano.");
+        return;
+      }
+      state.isClosed = true;
+      updateMetrics();
+      renderCAD();
+      rebuild3DScene();
+      switchTab('cad');
+    });
+
+    document.getElementById('btn-reset').addEventListener('click', () => {
+      if (confirm("¿Deseás borrar los vértices actuales?")) {
+        state.points = [];
+        state.openings = [];
+        state.isClosed = false;
+        updateMetrics();
+        renderCAD();
+        rebuild3DScene();
+      }
+    });
+
+    document.getElementById('btn-switch-camera').addEventListener('click', () => {
+      state.cameraFacing = state.cameraFacing === 'environment' ? 'user' : 'environment';
+      startCamera();
+    });
+
+    // -------------------------------------------------------------
+    // 3. IMPORTACIÓN DE PLANOS DE MENSURA (DXF, PDF, IMÁGENES)
+    // -------------------------------------------------------------
+    document.getElementById('input-plan-file').addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const fname = file.name.toLowerCase();
+
+      if (fname.endsWith('.dxf')) {
+        // Cargar archivo CAD DXF
+        const text = await file.text();
+        try {
+          const parser = new window.DxfParser();
+          state.planDxfData = parser.parseSync(text);
+          extractDxfEntities(state.planDxfData);
+          document.getElementById('plan-loaded-banner').classList.remove('hidden');
+          switchTab('cad');
+        } catch (err) {
+          alert("Error al leer el archivo DXF. Asegurate de que sea una versión DXF compatible.");
+          console.error(err);
+        }
+      } else if (fname.endsWith('.pdf')) {
+        // Cargar archivo PDF de Mensura
+        const buffer = await file.arrayBuffer();
+        try {
+          const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
+          const page = await pdf.getPage(1);
+          const viewport = page.getViewport({ scale: 2.0 });
+
+          const tempCanvas = document.createElement('canvas');
+          tempCanvas.width = viewport.width;
+          tempCanvas.height = viewport.height;
+          const tempCtx = tempCanvas.getContext('2d');
+
+          await page.render({ canvasContext: tempCtx, viewport: viewport }).promise;
+
+          const img = new Image();
+          img.onload = () => {
+            state.planImage = img;
+            document.getElementById('plan-loaded-banner').classList.remove('hidden');
+            switchTab('cad');
+          };
+          img.src = tempCanvas.toDataURL();
+        } catch (err) {
+          alert("Error al renderizar el archivo PDF.");
+          console.error(err);
+        }
+      } else if (file.type.startsWith('image/')) {
+        // Cargar Imagen (PNG, JPG)
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          const img = new Image();
+          img.onload = () => {
+            state.planImage = img;
+            document.getElementById('plan-loaded-banner').classList.remove('hidden');
+            switchTab('cad');
+          };
+          img.src = event.target.result;
+        };
+        reader.readAsDataURL(file);
+      }
+    });
+
+    document.getElementById('btn-remove-plan-bg').addEventListener('click', () => {
+      state.planImage = null;
+      state.planDxfData = null;
+      document.getElementById('plan-loaded-banner').classList.add('hidden');
+      renderCAD();
+    });
+
+    // Extraer líneas de un plano CAD DXF
+    function extractDxfEntities(dxf) {
+      if (!dxf || !dxf.entities) return;
+      const newPoints = [];
+
+      dxf.entities.forEach(ent => {
+        if (ent.type === 'LINE' && ent.vertices) {
+          newPoints.push({ x: ent.vertices[0].x, y: ent.vertices[0].y });
+          newPoints.push({ x: ent.vertices[1].x, y: ent.vertices[1].y });
+        } else if (ent.type === 'LWPOLYLINE' && ent.vertices) {
+          ent.vertices.forEach(v => newPoints.push({ x: v.x, y: v.y }));
+        }
+      });
+
+      if (newPoints.length > 0) {
+        state.points = newPoints;
+        state.isClosed = true;
+        updateMetrics();
+        renderCAD();
+        rebuild3DScene();
+      }
+    }
+
+    // -------------------------------------------------------------
+    // 4. EDITOR Y CANVA 2D CAD
+    // -------------------------------------------------------------
+    function resizeCanvas() {
+      cadCanvas.width = cadCanvas.clientWidth * window.devicePixelRatio;
+      cadCanvas.height = cadCanvas.clientHeight * window.devicePixelRatio;
+      renderCAD();
+    }
+    window.addEventListener('resize', resizeCanvas);
+
+    // Selección de Herramientas CAD
+    const toolsBtns = {
+      'select': document.getElementById('tool-select'),
+      'draw-wall': document.getElementById('tool-draw-wall'),
+      'add-door': document.getElementById('tool-add-door'),
+      'add-window': document.getElementById('tool-add-window'),
+      'calibrate': document.getElementById('tool-calibrate')
+    };
+
+    Object.keys(toolsBtns).forEach(t => {
+      toolsBtns[t].addEventListener('click', () => {
+        state.currentTool = t;
+        Object.values(toolsBtns).forEach(b => {
+          b.classList.remove('bg-sky-600', 'text-white');
+          b.classList.add('hover:bg-slate-700', 'text-slate-300');
+        });
+        toolsBtns[t].classList.add('bg-sky-600', 'text-white');
+        toolsBtns[t].classList.remove('hover:bg-slate-700', 'text-slate-300');
+      });
+    });
+
+    // Eventos del Mouse en Canvas 2D
+    let isDrawingLine = false;
+    let dragStart = null;
+
+    cadCanvas.addEventListener('mousedown', (e) => {
+      const rect = cadCanvas.getBoundingClientRect();
+      const clickX = (e.clientX - rect.left) * window.devicePixelRatio;
+      const clickY = (e.clientY - rect.top) * window.devicePixelRatio;
+
+      const worldPt = screenToWorld({ x: clickX, y: clickY });
+
+      if (state.currentTool === 'draw-wall') {
+        state.points.push(worldPt);
+        updateMetrics();
+        renderCAD();
+        rebuild3DScene();
+      } else if (state.currentTool === 'calibrate') {
+        if (!state.calibrationStart) {
+          state.calibrationStart = worldPt;
+        } else {
+          const dx = worldPt.x - state.calibrationStart.x;
+          const dy = worldPt.y - state.calibrationStart.y;
+          const distPx = Math.sqrt(dx * dx + dy * dy) * state.pxPerMeter;
+          const realMeters = prompt("Ingresá la distancia real en metros para esta cota:", "5.0");
+
+          if (realMeters && !isNaN(parseFloat(realMeters)) && parseFloat(realMeters) > 0) {
+            state.pxPerMeter = distPx / parseFloat(realMeters);
+            document.getElementById('val-px-per-m').innerText = Math.round(state.pxPerMeter);
+            alert(`Escala calibrada: 1 metro = ${Math.round(state.pxPerMeter)}px`);
+          }
+          state.calibrationStart = null;
+          renderCAD();
+        }
+      } else if (state.currentTool === 'add-door' || state.currentTool === 'add-window') {
+        // Agregar abertura al muro más cercano
+        if (state.points.length >= 2) {
+          state.openings.push({
+            type: state.currentTool === 'add-door' ? 'door' : 'window',
+            wallIndex: 0,
+            ratio: 0.5,
+            width: state.currentTool === 'add-door' ? 0.90 : 1.20
+          });
+          rebuild3DScene();
+          renderCAD();
+        }
+      }
+    });
+
+    function worldToScreen(pt) {
+      const w = cadCanvas.width;
+      const h = cadCanvas.height;
+      return {
+        x: w / 2 + (pt.x + state.panOffset.x) * state.pxPerMeter,
+        y: h / 2 - (pt.y + state.panOffset.y) * state.pxPerMeter
+      };
+    }
+
+    function screenToWorld(pt) {
+      const w = cadCanvas.width;
+      const h = cadCanvas.height;
+      return {
+        x: (pt.x - w / 2) / state.pxPerMeter - state.panOffset.x,
+        y: -(pt.y - h / 2) / state.pxPerMeter - state.panOffset.y
+      };
+    }
+
+    function renderCAD() {
+      const w = cadCanvas.width;
+      const h = cadCanvas.height;
+      cadCtx.clearRect(0, 0, w, h);
+
+      // Renderizar Fondo del Plano Importado si existe
+      if (state.planImage) {
+        cadCtx.save();
+        const imgW = state.planImage.width;
+        const imgH = state.planImage.height;
+        cadCtx.globalAlpha = 0.6;
+        cadCtx.drawImage(state.planImage, w / 2 - imgW / 2, h / 2 - imgH / 2, imgW, imgH);
+        cadCtx.restore();
+      }
+
+      if (state.points.length === 0 && !state.planImage) {
+        cadCtx.fillStyle = '#64748b';
+        cadCtx.font = `${13 * window.devicePixelRatio}px monospace`;
+        cadCtx.textAlign = 'center';
+        cadCtx.fillText("IMPORTÁ UN PLANO O MARCA VÉRTICES EN LA CÁMARA", w / 2, h / 2);
+        return;
+      }
+
+      // Relleno de ambiente
+      if (state.isClosed && state.points.length >= 3) {
+        cadCtx.beginPath();
+        const start = worldToScreen(state.points[0]);
+        cadCtx.moveTo(start.x, start.y);
+        for (let i = 1; i < state.points.length; i++) {
+          const p = worldToScreen(state.points[i]);
+          cadCtx.lineTo(p.x, p.y);
+        }
+        cadCtx.closePath();
+        cadCtx.fillStyle = 'rgba(56, 189, 248, 0.12)';
+        cadCtx.fill();
+      }
+
+      // Trazado de Muros 2D
+      if (state.points.length >= 2) {
+        cadCtx.beginPath();
+        cadCtx.lineWidth = 4 * window.devicePixelRatio;
+        cadCtx.strokeStyle = '#38bdf8';
+        cadCtx.lineCap = 'round';
+
+        const startPt = worldToScreen(state.points[0]);
+        cadCtx.moveTo(startPt.x, startPt.y);
+
+        for (let i = 1; i < state.points.length; i++) {
+          const pt = worldToScreen(state.points[i]);
+          cadCtx.lineTo(pt.x, pt.y);
+        }
+
+        if (state.isClosed) cadCtx.closePath();
+        cadCtx.stroke();
+      }
+
+      // Renderizar Cotas Métricas
+      const limit = state.isClosed ? state.points.length : state.points.length - 1;
+      for (let i = 0; i < limit; i++) {
+        const p1 = state.points[i];
+        const p2 = state.points[(i + 1) % state.points.length];
+        const sp1 = worldToScreen(p1);
+        const sp2 = worldToScreen(p2);
+
+        const dist = Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2)).toFixed(2);
+        const midX = (sp1.x + sp2.x) / 2;
+        const midY = (sp1.y + sp2.y) / 2;
+
+        cadCtx.fillStyle = '#0f172a';
+        cadCtx.strokeStyle = '#38bdf8';
+        cadCtx.lineWidth = 1;
+        const text = `${dist}m`;
+        cadCtx.font = `${11 * window.devicePixelRatio}px monospace`;
+        cadCtx.textAlign = 'center';
+        cadCtx.textBaseline = 'middle';
+
+        const textWidth = cadCtx.measureText(text).width + 12;
+        cadCtx.fillRect(midX - textWidth / 2, midY - 10, textWidth, 20);
+        cadCtx.strokeRect(midX - textWidth / 2, midY - 10, textWidth, 20);
+        cadCtx.fillStyle = '#38bdf8';
+        cadCtx.fillText(text, midX, midY);
+      }
+
+      // Dibujar Vértices
+      state.points.forEach((pt) => {
+        const sp = worldToScreen(pt);
+        cadCtx.beginPath();
+        cadCtx.arc(sp.x, sp.y, 6 * window.devicePixelRatio, 0, Math.PI * 2);
+        cadCtx.fillStyle = '#10b981';
+        cadCtx.fill();
+        cadCtx.lineWidth = 2 * window.devicePixelRatio;
+        cadCtx.strokeStyle = '#ffffff';
+        cadCtx.stroke();
+      });
+    }
+
+    // -------------------------------------------------------------
+    // 5. CÁLCULOS ARQUITECTÓNICOS (ÁREA Y PERÍMETRO)
+    // -------------------------------------------------------------
+    function calculateArea(pts) {
+      if (pts.length < 3) return 0;
+      let area = 0;
+      for (let i = 0; i < pts.length; i++) {
+        const j = (i + 1) % pts.length;
+        area += pts[i].x * pts[j].y;
+        area -= pts[j].x * pts[i].y;
+      }
+      return Math.abs(area) / 2;
+    }
+
+    function updateMetrics() {
+      const area = calculateArea(state.points);
+      metricAreaTop.innerText = `${area.toFixed(2)} m²`;
+      metricPointsCount.innerText = `${state.points.length} pts`;
+      hudPts.innerText = state.points.length;
+    }
+
+    // -------------------------------------------------------------
+    // 6. MOTOR 3D Y EXTRUSIÓN ARQUITECTÓNICA (THREE.JS)
+    // -------------------------------------------------------------
+    let scene, camera, renderer, controls, architecturalGroup;
+
+    function init3D() {
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x090d16);
+
+      const grid = new THREE.GridHelper(30, 30, 0x38bdf8, 0x1e293b);
+      grid.position.y = -0.01;
+      scene.add(grid);
+
+      camera = new THREE.PerspectiveCamera(60, threeContainer.clientWidth / threeContainer.clientHeight, 0.1, 1000);
+      camera.position.set(0, 8, 10);
+
+      renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(threeContainer.clientWidth, threeContainer.clientHeight);
+      renderer.setPixelRatio(window.devicePixelRatio);
+      renderer.shadowMap.enabled = true;
+      threeContainer.appendChild(renderer.domElement);
+
+      controls = new THREE.OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.05;
+
+      const ambLight = new THREE.AmbientLight(0xffffff, 0.7);
+      scene.add(ambLight);
+
+      const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+      dirLight.position.set(10, 20, 10);
+      dirLight.castShadow = true;
+      scene.add(dirLight);
+
+      animate3D();
+    }
+
+    function animate3D() {
+      requestAnimationFrame(animate3D);
+      if (controls) controls.update();
+      if (renderer && scene && camera) renderer.render(scene, camera);
+    }
+
+    // Constructor de Muros 3D Sólidos
+    function rebuild3DScene() {
+      if (!scene) return;
+      if (architecturalGroup) scene.remove(architecturalGroup);
+
+      architecturalGroup = new THREE.Group();
+      scene.add(architecturalGroup);
+
+      if (state.points.length < 2) return;
+
+      const pts = state.points;
+      const height = parseFloat(document.getElementById('input-wall-height').value) || state.wallHeight;
+      const thickness = parseFloat(document.getElementById('input-wall-thickness').value) || state.wallThickness;
+      const limit = state.isClosed ? pts.length : pts.length - 1;
+
+      // Materiales 3D Arquitectónicos
+      const wallMaterial = new THREE.MeshStandardMaterial({
+        color: 0x38bdf8,
+        roughness: 0.4,
+        metalness: 0.1,
+        wireframe: state.renderMode === 'wireframe'
+      });
+
+      const floorMaterial = new THREE.MeshStandardMaterial({
+        color: 0x1e293b,
+        roughness: 0.8
+      });
+
+      // Crear cada Muro como una Geometría 3D Extruida
+      for (let i = 0; i < limit; i++) {
+        const p1 = pts[i];
+        const p2 = pts[(i + 1) % pts.length];
+
+        const dx = p2.x - p1.x;
+        const dz = -(p2.y - p1.y); // Mapeo a coordenada Z en Three.js
+        const length = Math.sqrt(dx * dx + dz * dz);
+        const angle = Math.atan2(dz, dx);
+
+        const wallGeo = new THREE.BoxGeometry(length, height, thickness);
+        const wallMesh = new THREE.Mesh(wallGeo, wallMaterial);
+
+        // Posicionar en el centro del segmento y elevar a la mitad de la altura
+        wallMesh.position.set((p1.x + p2.x) / 2, height / 2, -((p1.y + p2.y) / 2));
+        wallMesh.rotation.y = -angle;
+        wallMesh.castShadow = true;
+        wallMesh.receiveShadow = true;
+
+        architecturalGroup.add(wallMesh);
+      }
+
+      // Suelo Sólido si la planta está cerrada
+      if (state.isClosed && pts.length >= 3) {
+        const shape = new THREE.Shape();
+        shape.moveTo(pts[0].x, -pts[0].y);
+        for (let i = 1; i < pts.length; i++) {
+          shape.lineTo(pts[i].x, -pts[i].y);
+        }
+        shape.closePath();
+
+        const floorGeo = new THREE.ShapeGeometry(shape);
+        const floorMesh = new THREE.Mesh(floorGeo, floorMaterial);
+        floorMesh.rotation.x = -Math.PI / 2;
+        floorMesh.position.y = 0;
+        architecturalGroup.add(floorMesh);
+      }
+
+      document.getElementById('hud-3d-walls').innerText = limit;
+      document.getElementById('hud-3d-openings').innerText = state.openings.length;
+    }
+
+    document.getElementById('input-wall-height').addEventListener('change', rebuild3DScene);
+    document.getElementById('input-wall-thickness').addEventListener('change', rebuild3DScene);
+    document.getElementById('select-render-mode').addEventListener('change', (e) => {
+      state.renderMode = e.target.value;
+      rebuild3DScene();
+    });
+
+    // -------------------------------------------------------------
+    // 7. SISTEMA MULTI-FORMATO DE EXPORTACIÓN (CAD & 3D)
+    // -------------------------------------------------------------
+    
+    // Exportar Plano CAD .DXF 2D
+    document.getElementById('btn-export-dxf').addEventListener('click', () => {
+      if (state.points.length < 2) { alert("Marcá al menos un muro para exportar."); return; }
+
+      let dxf = "0\nSECTION\n2\nHEADER\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n";
+      const limit = state.isClosed ? state.points.length : state.points.length - 1;
+
+      for (let i = 0; i < limit; i++) {
+        const p1 = state.points[i];
+        const p2 = state.points[(i + 1) % state.points.length];
+
+        dxf += "0\nLINE\n8\nMUROS\n";
+        dxf += `10\n${p1.x}\n20\n${p1.y}\n30\n0.0\n`;
+        dxf += `11\n${p2.x}\n21\n${p2.y}\n31\n0.0\n`;
+      }
+
+      dxf += "0\nENDSEC\n0\nEOF\n";
+      downloadFile(dxf, `plano-cad-${Date.now()}.dxf`, "application/dxf");
+    });
+
+    // Exportar Modelo 3D .OBJ
+    document.getElementById('btn-export-obj').addEventListener('click', () => {
+      if (!architecturalGroup) { alert("Generá el diseño 3D primero."); return; }
+      const exporter = new THREE.OBJExporter();
+      const result = exporter.parse(architecturalGroup);
+      downloadFile(result, `modelo-arquitectura-${Date.now()}.obj`, "text/plain");
+    });
+
+    // Exportar Modelo 3D .GLB / GLTF
+    document.getElementById('btn-export-glb').addEventListener('click', () => {
+      if (!architecturalGroup) { alert("Generá el diseño 3D primero."); return; }
+      const exporter = new THREE.GLTFExporter();
+      exporter.parse(architecturalGroup, (gltf) => {
+        const output = JSON.stringify(gltf, null, 2);
+        downloadFile(output, `modelo-arquitectura-${Date.now()}.gltf`, "application/json");
+      });
+    });
+
+    // Exportar Nube de Puntos PLY
+    document.getElementById('btn-export-ply').addEventListener('click', () => {
+      if (state.points.length < 2) { alert("Generá muros para exportar."); return; }
+      let ply = "ply\nformat ascii 1.0\ncomment ScanArch Studio\n";
+      const pts = state.points;
+      ply += `element vertex ${pts.length * 10}\nproperty float x\nproperty float y\nproperty float z\nend_header\n`;
+      
+      pts.forEach(p => {
+        for (let h = 0; h < 10; h++) {
+          ply += `${p.x} ${(h/10)*state.wallHeight} ${-p.y}\n`;
+        }
+      });
+      downloadFile(ply, `nube-puntos-${Date.now()}.ply`, "text/plain");
+    });
+
+    // Exportar Imagen del Plano PNG
+    document.getElementById('btn-export-png').addEventListener('click', () => {
+      const dataUrl = cadCanvas.toDataURL("image/png");
+      const a = document.createElement("a");
+      a.href = dataUrl;
+      a.download = `plano-2d-${Date.now()}.png`;
+      a.click();
+    });
+
+    function downloadFile(content, filename, mimeType) {
+      const blob = new Blob([content], { type: mimeType });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+
+    // -------------------------------------------------------------
+    // 8. GESTIÓN DE TABS / VISTAS
+    // -------------------------------------------------------------
+    function switchTab(tabId) {
+      state.activeTab = tabId;
+
+      [tabCam, tabCad, tab3D].forEach(b => {
+        b.classList.remove('text-emerald-400');
+        b.classList.add('text-slate-400');
+      });
+
+      viewCamera.classList.add('hidden');
+      viewCad.classList.add('hidden');
+      view3D.classList.add('hidden');
+
+      if (tabId === 'cam') {
+        tabCam.classList.add('text-emerald-400');
+        tabCam.classList.remove('text-slate-400');
+        viewCamera.classList.remove('hidden');
+      } else if (tabId === 'cad') {
+        tabCad.classList.add('text-emerald-400');
+        tabCad.classList.remove('text-slate-400');
+        viewCad.classList.remove('hidden');
+        resizeCanvas();
+      } else if (tabId === '3d') {
+        tab3D.classList.add('text-emerald-400');
+        tab3D.classList.remove('text-slate-400');
+        view3D.classList.remove('hidden');
+        if (renderer) {
+          renderer.setSize(threeContainer.clientWidth, threeContainer.clientHeight);
+          camera.aspect = threeContainer.clientWidth / threeContainer.clientHeight;
+          camera.updateProjectionMatrix();
+        }
+        rebuild3DScene();
+      }
+    }
+
+    tabCam.addEventListener('click', () => switchTab('cam'));
+    tabCad.addEventListener('click', () => switchTab('cad'));
+    tab3D.addEventListener('click', () => switchTab('3d'));
+
+    // INICIALIZACIÓN DE INICIO
+    window.addEventListener('DOMContentLoaded', () => {
+      startCamera();
+      initSensors();
+      init3D();
+      resizeCanvas();
+      updateDistLabels();
+    });
+  </script>
+</body>
+</html>
