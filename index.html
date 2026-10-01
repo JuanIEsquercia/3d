@@ -38,6 +38,11 @@
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     }
 
+    /* Alto real de pantalla en celulares (evita que la barra del navegador tape las pestañas) */
+    @supports (height: 100dvh) {
+      html, body { height: 100dvh; }
+    }
+
     .blueprint-grid {
       background-color: #0b1329;
       background-image: 
@@ -102,14 +107,14 @@
       </label>
 
       <!-- Botón Exportar Selector -->
-      <div class="relative group">
-        <button class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-medium text-xs shadow-lg shadow-emerald-950 transition active:scale-95">
+      <div class="relative">
+        <button id="btn-export-menu" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-medium text-xs shadow-lg shadow-emerald-950 transition active:scale-95">
           <i data-lucide="download" class="w-4 h-4"></i>
           <span>Exportar</span>
           <i data-lucide="chevron-down" class="w-3.5 h-3.5"></i>
         </button>
 
-        <div class="absolute right-0 top-full mt-1 w-48 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl hidden group-hover:block z-50 py-1">
+        <div id="export-menu" class="absolute right-0 top-full mt-1 w-48 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl hidden z-50 py-1">
           <button id="btn-export-dxf" class="w-full px-3 py-2 text-left hover:bg-slate-800 text-xs flex items-center gap-2 text-slate-200">
             <i data-lucide="file-text" class="w-4 h-4 text-sky-400"></i> Plano CAD (.DXF 2D)
           </button>
@@ -138,14 +143,24 @@
       <video id="ar-video" autoplay playsinline muted class="absolute inset-0 w-full h-full object-cover"></video>
       <div class="absolute inset-0 bg-gradient-to-b from-black/60 via-transparent to-black/80 pointer-events-none"></div>
 
+      <!-- Pantalla de activación / error de cámara -->
+      <div id="cam-start-overlay" class="absolute inset-0 z-20 flex flex-col items-center justify-center gap-4 bg-black/85 p-6 text-center">
+        <button id="btn-start-camera" class="flex items-center gap-2 px-5 py-3 rounded-xl bg-emerald-500 text-slate-950 font-bold text-sm shadow-lg shadow-emerald-950 active:scale-95">
+          <i data-lucide="camera" class="w-5 h-5"></i>
+          <span>Activar cámara y giroscopio</span>
+        </button>
+        <p id="cam-error" class="text-xs text-slate-300 font-mono max-w-xs">Tocá el botón y aceptá los permisos de cámara y de movimiento.</p>
+      </div>
+
       <!-- HUD Superior en Cámara -->
       <div class="relative p-4 flex justify-between items-start pointer-events-auto">
         <div class="glass-panel rounded-xl p-3 text-xs font-mono space-y-1">
           <div class="flex items-center gap-2">
-            <span class="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
-            <span class="text-emerald-400 font-bold uppercase tracking-wider text-[11px]">Cámara y Giroscopio</span>
+            <span id="cam-status-dot" class="inline-block w-2 h-2 rounded-full bg-rose-500"></span>
+            <span id="cam-status-text" class="text-rose-400 font-bold uppercase tracking-wider text-[11px]">Cámara Inactiva</span>
           </div>
-          <div class="text-slate-300">Rumbo: <span id="hud-heading" class="text-white font-bold">0°</span></div>
+          <div class="text-slate-300">Giroscopio: <span id="hud-sensor" class="text-amber-400 font-bold">sin datos</span></div>
+          <div class="text-slate-300">Rumbo del muro: <span id="hud-heading" class="text-white font-bold">0°</span></div>
           <div class="text-slate-300">Vértices Fijados: <span id="hud-pts" class="text-white font-bold">0</span></div>
         </div>
 
@@ -185,6 +200,14 @@
           <button id="btn-dist-inc" class="px-3 py-2 rounded-xl glass-panel text-white font-mono text-xs font-bold active:scale-90">+ 0.25m</button>
         </div>
 
+        <!-- Giro manual, ajuste a 90° y deshacer -->
+        <div class="grid grid-cols-4 gap-2">
+          <button id="btn-turn-left" class="py-2 rounded-xl glass-panel text-white font-mono text-xs font-bold active:scale-90">&#8630; 90°</button>
+          <button id="btn-snap-90" class="py-2 rounded-xl bg-emerald-950/90 border border-emerald-500/50 text-emerald-400 font-mono text-[11px] font-bold active:scale-90">Escuadra: SÍ</button>
+          <button id="btn-turn-right" class="py-2 rounded-xl glass-panel text-white font-mono text-xs font-bold active:scale-90">90° &#8631;</button>
+          <button id="btn-undo-ar" class="py-2 rounded-xl glass-panel text-amber-300 font-mono text-xs font-bold active:scale-90">Deshacer</button>
+        </div>
+
         <!-- Acciones AR -->
         <div class="grid grid-cols-3 gap-2">
           <button id="btn-reset" class="flex flex-col items-center justify-center py-2.5 rounded-xl bg-rose-500/20 border border-rose-500/30 text-rose-300 font-semibold text-xs active:scale-95">
@@ -212,7 +235,7 @@
             <i data-lucide="drafting-compass" class="w-4 h-4"></i> EDITOR DE PLANO 2D
           </span>
           <span class="text-slate-500">|</span>
-          <span id="label-scale-info" class="text-slate-300">Escala: 1m = <span id="val-px-per-m">50</span>px</span>
+          <span id="label-scale-info" class="text-slate-300">Escala: <span id="val-px-per-m">sin calibrar</span></span>
         </div>
 
         <div class="flex items-center gap-2">
@@ -235,6 +258,16 @@
             </button>
           </div>
 
+          <button id="btn-undo-cad" class="px-2.5 py-1 rounded-lg bg-slate-800 border border-slate-700 text-amber-300 hover:bg-slate-700 font-medium text-[11px] flex items-center gap-1">
+            <i data-lucide="undo-2" class="w-3.5 h-3.5"></i> Deshacer
+          </button>
+          <button id="btn-close-cad" class="px-2.5 py-1 rounded-lg bg-slate-800 border border-slate-700 text-sky-300 hover:bg-slate-700 font-medium text-[11px] flex items-center gap-1">
+            <i data-lucide="check-circle" class="w-3.5 h-3.5"></i> Cerrar Planta
+          </button>
+          <button id="btn-fit-view" class="px-2.5 py-1 rounded-lg bg-slate-800 border border-slate-700 text-slate-200 hover:bg-slate-700 font-medium text-[11px] flex items-center gap-1">
+            <i data-lucide="maximize" class="w-3.5 h-3.5"></i> Encuadrar
+          </button>
+
           <button id="btn-auto-vectorize" class="px-2.5 py-1 rounded-lg bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/30 font-medium text-[11px] flex items-center gap-1">
             <i data-lucide="wand-2" class="w-3.5 h-3.5"></i> Vectorizar Imagen
           </button>
@@ -243,15 +276,15 @@
 
       <!-- Canvas 2D interactivo -->
       <div class="relative flex-1 w-full h-full overflow-hidden">
-        <canvas id="cad-canvas" class="w-full h-full cursor-crosshair"></canvas>
+        <canvas id="cad-canvas" class="w-full h-full cursor-crosshair" style="touch-action: none;"></canvas>
         
         <!-- Banner flotante cuando hay plano importado -->
-        <div id="plan-loaded-banner" class="hidden absolute top-4 left-4 glass-panel rounded-xl p-3 max-w-sm text-xs space-y-1.5 z-20">
+        <div id="plan-loaded-banner" class="hidden absolute bottom-3 left-3 right-3 sm:right-auto glass-panel rounded-xl p-3 max-w-sm text-xs space-y-1.5 z-20 pointer-events-none">
           <div class="flex items-center justify-between text-sky-400 font-bold">
             <span class="flex items-center gap-1.5"><i data-lucide="file-check" class="w-4 h-4"></i> Mensura Importada</span>
-            <button id="btn-remove-plan-bg" class="text-slate-400 hover:text-rose-400"><i data-lucide="x" class="w-4 h-4"></i></button>
+            <button id="btn-remove-plan-bg" class="text-slate-400 hover:text-rose-400 pointer-events-auto"><i data-lucide="x" class="w-4 h-4"></i></button>
           </div>
-          <p class="text-[11px] text-slate-300">Podés calibrar la escala trazando una línea sobre una cota conocida, o usar las herramientas para dibujar muros sobre la imagen.</p>
+          <p id="plan-banner-text" class="text-[11px] text-slate-300">1) "Calibrar Escala": tocá los dos extremos de una cota conocida e ingresá sus metros. 2) "Trazar Muro": tocá cada esquina sobre la mensura. Arrastrar = mover la vista, pellizcar o rueda = zoom.</p>
         </div>
       </div>
     </div>
@@ -314,7 +347,7 @@
 
   <!-- LÓGICA PRINCIPAL DE LA APLICACIÓN -->
   <script>
-    lucide.createIcons();
+    if (window.lucide) lucide.createIcons();
 
     // ESTADO GLOBAL DE LA APLICACIÓN
     const state = {
@@ -359,56 +392,174 @@
     const cadCtx = cadCanvas.getContext('2d');
     const threeContainer = document.getElementById('three-container');
 
+    // Estado adicional: rumbo, mensura en coordenadas reales y origen del dibujo
+    Object.assign(state, {
+      headingOffset: 0,          // Giro manual sumado al rumbo del sensor (botones ±90°)
+      baseHeading: null,         // Rumbo del primer muro (referencia para la escuadra)
+      snap90: true,              // Ajustar cada muro a múltiplos de 90° respecto del primero
+      sensorActive: false,       // true cuando el giroscopio entrega datos
+      plan: { x: 0, y: 0, mPerPx: 0.02 }, // Centro de la mensura (m) y metros por píxel de imagen
+      planCalibrated: false,
+      pointsLockedToPlan: false  // true si el dibujo se trazó sobre la mensura (la sigue al calibrar)
+    });
+
+    const dpr = window.devicePixelRatio || 1;
+
+    function normalizeDeg(d) {
+      return ((d % 360) + 360) % 360;
+    }
+
+    function refreshAll() {
+      updateMetrics();
+      renderCAD();
+      rebuild3DScene();
+    }
+
     // -------------------------------------------------------------
     // 1. GESTIÓN DE CÁMARA Y GIROSCOPIO (iOS & Android)
     // -------------------------------------------------------------
     let currentStream = null;
+    const camOverlay = document.getElementById('cam-start-overlay');
+    const camError = document.getElementById('cam-error');
+    const camStatusDot = document.getElementById('cam-status-dot');
+    const camStatusText = document.getElementById('cam-status-text');
+    const hudSensor = document.getElementById('hud-sensor');
+    const btnGyro = document.getElementById('btn-request-gyro');
+
+    function setCameraStatus(active) {
+      camOverlay.classList.toggle('hidden', active);
+      camStatusDot.className = `inline-block w-2 h-2 rounded-full ${active ? 'bg-emerald-400 animate-ping' : 'bg-rose-500'}`;
+      camStatusText.className = `${active ? 'text-emerald-400' : 'text-rose-400'} font-bold uppercase tracking-wider text-[11px]`;
+      camStatusText.innerText = active ? 'Cámara Activa' : 'Cámara Inactiva';
+    }
+
+    function showCameraError(msg) {
+      setCameraStatus(false);
+      camError.innerText = msg;
+    }
+
     async function startCamera() {
+      if (!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        showCameraError('La cámara necesita HTTPS y un navegador compatible (Chrome o Safari). Abrí la app desde la URL https:// de Vercel, no desde una app de mensajería.');
+        return;
+      }
       if (currentStream) {
         currentStream.getTracks().forEach(t => t.stop());
       }
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: state.cameraFacing, width: { ideal: 1920 }, height: { ideal: 1080 } },
-          audio: false
-        });
+        let stream;
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: { ideal: state.cameraFacing }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+            audio: false
+          });
+        } catch (err) {
+          // Algunos celulares rechazan la resolución pedida: reintento con lo básico
+          if (err.name !== 'OverconstrainedError') throw err;
+          stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        }
         currentStream = stream;
         video.srcObject = stream;
+        await video.play().catch(() => {});
+        setCameraStatus(true);
       } catch (err) {
         console.warn("No se pudo iniciar la cámara:", err);
+        const messages = {
+          NotAllowedError: 'Permiso de cámara denegado. Habilitalo en la configuración del navegador (candado junto a la URL) y tocá de nuevo el botón.',
+          NotFoundError: 'No se encontró ninguna cámara en este dispositivo.',
+          NotReadableError: 'La cámara está en uso por otra app. Cerrala y volvé a intentar.'
+        };
+        showCameraError(messages[err.name] || `No se pudo iniciar la cámara (${err.name || err}).`);
       }
+    }
+
+    // Rumbo hacia donde apunta la cámara trasera, válido con el celular en vertical
+    // (fórmula de referencia de la especificación W3C DeviceOrientation)
+    function cameraHeading(alpha, beta, gamma) {
+      const d2r = Math.PI / 180;
+      const x = (beta || 0) * d2r;
+      const y = (gamma || 0) * d2r;
+      const z = (alpha || 0) * d2r;
+      const vx = -Math.cos(z) * Math.sin(y) - Math.sin(z) * Math.sin(x) * Math.cos(y);
+      const vy = -Math.sin(z) * Math.sin(y) + Math.cos(z) * Math.sin(x) * Math.cos(y);
+      // Celular casi plano: la proyección es inestable, uso la dirección del borde superior
+      if (Math.hypot(vx, vy) < 0.2) return normalizeDeg(360 - alpha);
+      return normalizeDeg(Math.atan2(vx, vy) / d2r);
+    }
+
+    let gyroAttached = false;
+    let gotAbsolute = false;
+
+    function onOrientation(e) {
+      // Si el equipo entrega orientación absoluta (brújula), ignoro la relativa
+      if (e.type === 'deviceorientation' && gotAbsolute) return;
+
+      let heading = null;
+      if (typeof e.webkitCompassHeading === 'number' && !isNaN(e.webkitCompassHeading)) {
+        heading = e.webkitCompassHeading; // iOS Safari
+      } else if (e.alpha !== null && e.alpha !== undefined) {
+        heading = cameraHeading(e.alpha, e.beta, e.gamma); // Android Chrome
+      }
+      if (heading === null) return;
+
+      if (e.type === 'deviceorientationabsolute') gotAbsolute = true;
+      state.currentHeading = heading;
+      if (!state.sensorActive) {
+        state.sensorActive = true;
+        hudSensor.innerText = 'activo';
+        hudSensor.className = 'text-emerald-400 font-bold';
+      }
+      updateHeadingHud();
+    }
+
+    function attachGyroListener() {
+      if (gyroAttached) return;
+      gyroAttached = true;
+      window.addEventListener('deviceorientationabsolute', onOrientation, true);
+      window.addEventListener('deviceorientation', onOrientation, true);
+    }
+
+    // En iPhone el permiso de movimiento solo se puede pedir desde un toque del usuario
+    async function requestGyro() {
+      if (typeof DeviceOrientationEvent === 'undefined') return;
+      if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+        try {
+          const resp = await DeviceOrientationEvent.requestPermission();
+          if (resp !== 'granted') return;
+        } catch (e) {
+          console.warn(e);
+          return;
+        }
+        btnGyro.classList.add('hidden');
+      }
+      attachGyroListener();
     }
 
     function initSensors() {
       if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-        // En iOS Safari se requiere permiso explícito del usuario
-        const btnGyro = document.getElementById('btn-request-gyro');
         btnGyro.classList.remove('hidden');
-        btnGyro.addEventListener('click', async () => {
-          try {
-            const resp = await DeviceOrientationEvent.requestPermission();
-            if (resp === 'granted') {
-              btnGyro.classList.add('hidden');
-              attachGyroListener();
-            }
-          } catch (e) { console.error(e); }
-        });
       } else {
         attachGyroListener();
       }
     }
 
-    function attachGyroListener() {
-      window.addEventListener('deviceorientation', (e) => {
-        let heading = 0;
-        if (e.webkitCompassHeading) {
-          heading = e.webkitCompassHeading;
-        } else if (e.alpha !== null) {
-          heading = 360 - e.alpha;
-        }
-        state.currentHeading = Math.round(heading % 360);
-        hudHeading.innerText = `${state.currentHeading}°`;
-      }, true);
+    btnGyro.addEventListener('click', requestGyro);
+    document.getElementById('btn-start-camera').addEventListener('click', () => {
+      requestGyro();
+      startCamera();
+    });
+
+    // Rumbo final del próximo muro: sensor + giro manual, ajustado a escuadra si corresponde
+    function getWallHeading() {
+      const raw = normalizeDeg(state.currentHeading + state.headingOffset);
+      if (state.snap90 && state.baseHeading !== null) {
+        return normalizeDeg(state.baseHeading + Math.round((raw - state.baseHeading) / 90) * 90);
+      }
+      return raw;
+    }
+
+    function updateHeadingHud() {
+      hudHeading.innerText = `${Math.round(getWallHeading())}°`;
     }
 
     // -------------------------------------------------------------
@@ -432,44 +583,87 @@
       hudSegmentDist.innerText = formatted;
     }
 
+    // Giro manual: sirve como respaldo cuando el celular no tiene giroscopio/brújula
+    document.getElementById('btn-turn-left').addEventListener('click', () => {
+      state.headingOffset = normalizeDeg(state.headingOffset - 90);
+      updateHeadingHud();
+    });
+
+    document.getElementById('btn-turn-right').addEventListener('click', () => {
+      state.headingOffset = normalizeDeg(state.headingOffset + 90);
+      updateHeadingHud();
+    });
+
+    const btnSnap = document.getElementById('btn-snap-90');
+    btnSnap.addEventListener('click', () => {
+      state.snap90 = !state.snap90;
+      btnSnap.innerText = `Escuadra: ${state.snap90 ? 'SÍ' : 'NO'}`;
+      btnSnap.classList.toggle('text-emerald-400', state.snap90);
+      btnSnap.classList.toggle('text-slate-400', !state.snap90);
+      updateHeadingHud();
+    });
+
     document.getElementById('btn-mark-corner').addEventListener('click', () => {
       if (state.isClosed) return;
 
       if (state.points.length === 0) {
         state.points.push({ x: 0, y: 0 });
+        state.pointsLockedToPlan = false;
       } else {
+        if (state.baseHeading === null) {
+          state.baseHeading = normalizeDeg(state.currentHeading + state.headingOffset);
+        }
         const lastPt = state.points[state.points.length - 1];
-        const rad = (state.currentHeading * Math.PI) / 180;
+        const rad = (getWallHeading() * Math.PI) / 180;
         const nextX = parseFloat((lastPt.x + Math.sin(rad) * state.currentDistance).toFixed(3));
         const nextY = parseFloat((lastPt.y + Math.cos(rad) * state.currentDistance).toFixed(3));
         state.points.push({ x: nextX, y: nextY });
       }
 
-      updateMetrics();
-      renderCAD();
-      rebuild3DScene();
+      refreshAll();
     });
 
-    document.getElementById('btn-close-polygon').addEventListener('click', () => {
+    // Deshacer: reabre la planta o quita el último vértice (compartido por AR y editor 2D)
+    function undoLast() {
+      if (state.isClosed) {
+        state.isClosed = false;
+      } else {
+        state.points.pop();
+      }
+      if (state.points.length < 2) state.baseHeading = null;
+      if (state.points.length === 0) state.pointsLockedToPlan = false;
+      const wallCount = state.isClosed ? state.points.length : Math.max(state.points.length - 1, 0);
+      state.openings = state.openings.filter(o => o.wallIndex < wallCount);
+      refreshAll();
+      updateHeadingHud();
+    }
+    document.getElementById('btn-undo-ar').addEventListener('click', undoLast);
+    document.getElementById('btn-undo-cad').addEventListener('click', undoLast);
+
+    function closePolygon() {
       if (state.points.length < 3) {
         alert("Se necesitan al menos 3 vértices para cerrar el plano.");
-        return;
+        return false;
       }
       state.isClosed = true;
-      updateMetrics();
-      renderCAD();
-      rebuild3DScene();
-      switchTab('cad');
+      refreshAll();
+      return true;
+    }
+
+    document.getElementById('btn-close-polygon').addEventListener('click', () => {
+      if (closePolygon()) switchTab('cad');
     });
+    document.getElementById('btn-close-cad').addEventListener('click', closePolygon);
 
     document.getElementById('btn-reset').addEventListener('click', () => {
       if (confirm("¿Deseás borrar los vértices actuales?")) {
         state.points = [];
         state.openings = [];
         state.isClosed = false;
-        updateMetrics();
-        renderCAD();
-        rebuild3DScene();
+        state.baseHeading = null;
+        state.pointsLockedToPlan = false;
+        refreshAll();
+        updateHeadingHud();
       }
     });
 
@@ -478,12 +672,43 @@
       startCamera();
     });
 
+    // Menú Exportar: se abre con toque/clic y se cierra al elegir o tocar afuera
+    const exportMenu = document.getElementById('export-menu');
+    document.getElementById('btn-export-menu').addEventListener('click', (e) => {
+      e.stopPropagation();
+      exportMenu.classList.toggle('hidden');
+    });
+    document.addEventListener('click', () => exportMenu.classList.add('hidden'));
+
+    document.getElementById('btn-auto-vectorize').addEventListener('click', () => {
+      alert('La vectorización automática todavía no está disponible. Usá "Trazar Muro" y tocá cada esquina sobre la mensura.');
+    });
+
     // -------------------------------------------------------------
     // 3. IMPORTACIÓN DE PLANOS DE MENSURA (DXF, PDF, IMÁGENES)
     // -------------------------------------------------------------
+
+    // Ubica la mensura en coordenadas reales, encuadrada en la vista actual
+    function setPlanImage(img) {
+      state.planImage = img;
+      state.planDxfData = null;
+      state.planCalibrated = false;
+      document.getElementById('plan-loaded-banner').classList.remove('hidden');
+      switchTab('cad');
+
+      const w = cadCanvas.width;
+      const h = cadCanvas.height;
+      state.plan.mPerPx = Math.min((w * 0.9) / img.width, (h * 0.9) / img.height) / state.pxPerMeter;
+      state.plan.x = -state.panOffset.x;
+      state.plan.y = -state.panOffset.y;
+      updateScaleLabel();
+      renderCAD();
+    }
+
     document.getElementById('input-plan-file').addEventListener('change', async (e) => {
       const file = e.target.files[0];
       if (!file) return;
+      e.target.value = ''; // permite volver a elegir el mismo archivo
 
       const fname = file.name.toLowerCase();
 
@@ -494,7 +719,6 @@
           const parser = new window.DxfParser();
           state.planDxfData = parser.parseSync(text);
           extractDxfEntities(state.planDxfData);
-          document.getElementById('plan-loaded-banner').classList.remove('hidden');
           switchTab('cad');
         } catch (err) {
           alert("Error al leer el archivo DXF. Asegurate de que sea una versión DXF compatible.");
@@ -516,11 +740,7 @@
           await page.render({ canvasContext: tempCtx, viewport: viewport }).promise;
 
           const img = new Image();
-          img.onload = () => {
-            state.planImage = img;
-            document.getElementById('plan-loaded-banner').classList.remove('hidden');
-            switchTab('cad');
-          };
+          img.onload = () => setPlanImage(img);
           img.src = tempCanvas.toDataURL();
         } catch (err) {
           alert("Error al renderizar el archivo PDF.");
@@ -531,11 +751,7 @@
         const reader = new FileReader();
         reader.onload = (event) => {
           const img = new Image();
-          img.onload = () => {
-            state.planImage = img;
-            document.getElementById('plan-loaded-banner').classList.remove('hidden');
-            switchTab('cad');
-          };
+          img.onload = () => setPlanImage(img);
           img.src = event.target.result;
         };
         reader.readAsDataURL(file);
@@ -565,10 +781,10 @@
 
       if (newPoints.length > 0) {
         state.points = newPoints;
+        state.openings = [];
         state.isClosed = true;
-        updateMetrics();
-        renderCAD();
-        rebuild3DScene();
+        state.pointsLockedToPlan = false;
+        refreshAll();
       }
     }
 
@@ -576,8 +792,8 @@
     // 4. EDITOR Y CANVA 2D CAD
     // -------------------------------------------------------------
     function resizeCanvas() {
-      cadCanvas.width = cadCanvas.clientWidth * window.devicePixelRatio;
-      cadCanvas.height = cadCanvas.clientHeight * window.devicePixelRatio;
+      cadCanvas.width = cadCanvas.clientWidth * dpr;
+      cadCanvas.height = cadCanvas.clientHeight * dpr;
       renderCAD();
     }
     window.addEventListener('resize', resizeCanvas);
@@ -594,61 +810,15 @@
     Object.keys(toolsBtns).forEach(t => {
       toolsBtns[t].addEventListener('click', () => {
         state.currentTool = t;
+        state.calibrationStart = null;
         Object.values(toolsBtns).forEach(b => {
           b.classList.remove('bg-sky-600', 'text-white');
           b.classList.add('hover:bg-slate-700', 'text-slate-300');
         });
         toolsBtns[t].classList.add('bg-sky-600', 'text-white');
         toolsBtns[t].classList.remove('hover:bg-slate-700', 'text-slate-300');
-      });
-    });
-
-    // Eventos del Mouse en Canvas 2D
-    let isDrawingLine = false;
-    let dragStart = null;
-
-    cadCanvas.addEventListener('mousedown', (e) => {
-      const rect = cadCanvas.getBoundingClientRect();
-      const clickX = (e.clientX - rect.left) * window.devicePixelRatio;
-      const clickY = (e.clientY - rect.top) * window.devicePixelRatio;
-
-      const worldPt = screenToWorld({ x: clickX, y: clickY });
-
-      if (state.currentTool === 'draw-wall') {
-        state.points.push(worldPt);
-        updateMetrics();
         renderCAD();
-        rebuild3DScene();
-      } else if (state.currentTool === 'calibrate') {
-        if (!state.calibrationStart) {
-          state.calibrationStart = worldPt;
-        } else {
-          const dx = worldPt.x - state.calibrationStart.x;
-          const dy = worldPt.y - state.calibrationStart.y;
-          const distPx = Math.sqrt(dx * dx + dy * dy) * state.pxPerMeter;
-          const realMeters = prompt("Ingresá la distancia real en metros para esta cota:", "5.0");
-
-          if (realMeters && !isNaN(parseFloat(realMeters)) && parseFloat(realMeters) > 0) {
-            state.pxPerMeter = distPx / parseFloat(realMeters);
-            document.getElementById('val-px-per-m').innerText = Math.round(state.pxPerMeter);
-            alert(`Escala calibrada: 1 metro = ${Math.round(state.pxPerMeter)}px`);
-          }
-          state.calibrationStart = null;
-          renderCAD();
-        }
-      } else if (state.currentTool === 'add-door' || state.currentTool === 'add-window') {
-        // Agregar abertura al muro más cercano
-        if (state.points.length >= 2) {
-          state.openings.push({
-            type: state.currentTool === 'add-door' ? 'door' : 'window',
-            wallIndex: 0,
-            ratio: 0.5,
-            width: state.currentTool === 'add-door' ? 0.90 : 1.20
-          });
-          rebuild3DScene();
-          renderCAD();
-        }
-      }
+      });
     });
 
     function worldToScreen(pt) {
@@ -669,26 +839,267 @@
       };
     }
 
+    function updateScaleLabel() {
+      const el = document.getElementById('val-px-per-m');
+      if (state.planImage && !state.planCalibrated) {
+        el.innerText = 'sin calibrar';
+      } else if (state.planImage) {
+        el.innerText = `1 px de mensura = ${(state.plan.mPerPx * 100).toFixed(2)} cm`;
+      } else {
+        el.innerText = 'metros reales';
+      }
+    }
+
+    // Encuadra en pantalla todo el dibujo y la mensura
+    function fitView() {
+      const w = cadCanvas.width;
+      const h = cadCanvas.height;
+      if (!w || !h) return;
+
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+      const add = (x, y) => {
+        minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+        minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+      };
+      state.points.forEach(p => add(p.x, p.y));
+      if (state.planImage) {
+        const hw = (state.planImage.width * state.plan.mPerPx) / 2;
+        const hh = (state.planImage.height * state.plan.mPerPx) / 2;
+        add(state.plan.x - hw, state.plan.y - hh);
+        add(state.plan.x + hw, state.plan.y + hh);
+      }
+      if (minX === Infinity) return;
+
+      const pad = 60 * dpr;
+      const spanX = maxX - minX;
+      const spanY = maxY - minY;
+      if (spanX > 1e-6 || spanY > 1e-6) {
+        state.pxPerMeter = Math.min((w - pad * 2) / Math.max(spanX, 1e-6), (h - pad * 2) / Math.max(spanY, 1e-6));
+      }
+      state.panOffset.x = -(minX + maxX) / 2;
+      state.panOffset.y = -(minY + maxY) / 2;
+      renderCAD();
+    }
+    document.getElementById('btn-fit-view').addEventListener('click', fitView);
+
+    // Calibración: reescala la mensura (y el dibujo trazado sobre ella) a metros reales.
+    // La vista se compensa para que en pantalla nada se mueva: solo cambian las medidas.
+    function applyCalibration(k) {
+      if (state.planImage) {
+        state.plan.mPerPx *= k;
+        state.plan.x *= k;
+        state.plan.y *= k;
+        state.planCalibrated = true;
+      }
+      if (state.pointsLockedToPlan || !state.planImage) {
+        state.points.forEach(p => { p.x *= k; p.y *= k; });
+      }
+      state.pxPerMeter /= k;
+      state.panOffset.x *= k;
+      state.panOffset.y *= k;
+      updateScaleLabel();
+      refreshAll();
+    }
+
+    // Muro más cercano a un punto (para ubicar puertas y ventanas)
+    function nearestWall(pt) {
+      const pts = state.points;
+      const limit = state.isClosed ? pts.length : pts.length - 1;
+      let best = null;
+      for (let i = 0; i < limit; i++) {
+        const a = pts[i];
+        const b = pts[(i + 1) % pts.length];
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const len2 = dx * dx + dy * dy;
+        if (len2 === 0) continue;
+        const t = Math.max(0, Math.min(1, ((pt.x - a.x) * dx + (pt.y - a.y) * dy) / len2));
+        const dist = Math.hypot(pt.x - (a.x + dx * t), pt.y - (a.y + dy * t));
+        if (!best || dist < best.dist) best = { wallIndex: i, ratio: t, dist };
+      }
+      return best;
+    }
+
+    // Acción de un toque/clic según la herramienta activa
+    function handleTap(screenPt) {
+      const worldPt = screenToWorld(screenPt);
+
+      if (state.currentTool === 'draw-wall') {
+        if (state.isClosed) {
+          alert('La planta ya está cerrada. Usá "Deshacer" para reabrirla y seguir trazando.');
+          return;
+        }
+        // Tocar el primer vértice cierra la planta
+        if (state.points.length >= 3) {
+          const first = worldToScreen(state.points[0]);
+          if (Math.hypot(first.x - screenPt.x, first.y - screenPt.y) < 18 * dpr) {
+            state.isClosed = true;
+            refreshAll();
+            return;
+          }
+        }
+        if (state.points.length === 0) state.pointsLockedToPlan = !!state.planImage;
+        state.points.push(worldPt);
+        refreshAll();
+      } else if (state.currentTool === 'calibrate') {
+        if (!state.calibrationStart) {
+          state.calibrationStart = worldPt;
+          renderCAD();
+          return;
+        }
+        const currentMeters = Math.hypot(worldPt.x - state.calibrationStart.x, worldPt.y - state.calibrationStart.y);
+        state.calibrationStart = null;
+        if (currentMeters > 0) {
+          const input = prompt("Ingresá la distancia real en metros para esta cota:", "5.0");
+          const realMeters = input ? parseFloat(input.replace(',', '.')) : NaN;
+          if (!isNaN(realMeters) && realMeters > 0) {
+            applyCalibration(realMeters / currentMeters);
+            return;
+          }
+        }
+        renderCAD();
+      } else if (state.currentTool === 'add-door' || state.currentTool === 'add-window') {
+        // Agregar abertura al muro más cercano
+        const hit = state.points.length >= 2 ? nearestWall(worldPt) : null;
+        if (!hit) {
+          alert('Primero trazá al menos un muro.');
+          return;
+        }
+        state.openings.push({
+          type: state.currentTool === 'add-door' ? 'door' : 'window',
+          wallIndex: hit.wallIndex,
+          ratio: hit.ratio,
+          width: state.currentTool === 'add-door' ? 0.90 : 1.20
+        });
+        refreshAll();
+      }
+    }
+
+    // Gestos del canvas (mouse, dedo o lápiz):
+    // toque = acción de la herramienta · arrastrar = mover la vista · dos dedos / rueda = zoom
+    // En "Seleccionar", arrastrar un vértice lo mueve.
+    const pointers = new Map();
+    let gesture = null;
+    let hoverPt = null;
+    const TAP_SLOP = 8 * dpr;
+
+    function canvasPos(e) {
+      const rect = cadCanvas.getBoundingClientRect();
+      return { x: (e.clientX - rect.left) * dpr, y: (e.clientY - rect.top) * dpr };
+    }
+
+    function zoomAt(screenPt, newZoom) {
+      const anchor = screenToWorld(screenPt);
+      state.pxPerMeter = newZoom;
+      state.panOffset.x = (screenPt.x - cadCanvas.width / 2) / newZoom - anchor.x;
+      state.panOffset.y = -(screenPt.y - cadCanvas.height / 2) / newZoom - anchor.y;
+    }
+
+    cadCanvas.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      cadCanvas.setPointerCapture(e.pointerId);
+      const pos = canvasPos(e);
+      pointers.set(e.pointerId, pos);
+
+      if (pointers.size === 2) {
+        const [a, b] = [...pointers.values()];
+        gesture = { type: 'pinch', startDist: Math.hypot(a.x - b.x, a.y - b.y) || 1, startZoom: state.pxPerMeter };
+        return;
+      }
+      if (pointers.size > 2) return;
+
+      let vertexIndex = -1;
+      if (state.currentTool === 'select') {
+        vertexIndex = state.points.findIndex(p => {
+          const sp = worldToScreen(p);
+          return Math.hypot(sp.x - pos.x, sp.y - pos.y) < 18 * dpr;
+        });
+      }
+      gesture = vertexIndex >= 0
+        ? { type: 'vertex', index: vertexIndex }
+        : { type: 'tap', start: pos, startPan: { ...state.panOffset } };
+    });
+
+    cadCanvas.addEventListener('pointermove', (e) => {
+      const pos = canvasPos(e);
+      hoverPt = pos;
+
+      if (!pointers.has(e.pointerId)) {
+        // Mouse sin botón apretado: solo actualiza la línea de vista previa
+        if (state.currentTool === 'draw-wall' || state.calibrationStart) renderCAD();
+        return;
+      }
+      pointers.set(e.pointerId, pos);
+      if (!gesture) return;
+
+      if (gesture.type === 'pinch' && pointers.size >= 2) {
+        const [a, b] = [...pointers.values()];
+        const dist = Math.hypot(a.x - b.x, a.y - b.y) || 1;
+        zoomAt({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, gesture.startZoom * (dist / gesture.startDist));
+        gesture.startDist = dist;
+        gesture.startZoom = state.pxPerMeter;
+      } else if (gesture.type === 'vertex') {
+        state.points[gesture.index] = screenToWorld(pos);
+        updateMetrics();
+      } else if (gesture.type === 'tap' || gesture.type === 'pan') {
+        const dx = pos.x - gesture.start.x;
+        const dy = pos.y - gesture.start.y;
+        if (gesture.type === 'tap' && Math.hypot(dx, dy) > TAP_SLOP) gesture.type = 'pan';
+        if (gesture.type === 'pan') {
+          state.panOffset.x = gesture.startPan.x + dx / state.pxPerMeter;
+          state.panOffset.y = gesture.startPan.y - dy / state.pxPerMeter;
+        }
+      }
+      renderCAD();
+    });
+
+    function endPointer(e) {
+      if (!pointers.has(e.pointerId)) return;
+      const pos = canvasPos(e);
+      pointers.delete(e.pointerId);
+
+      if (gesture && e.type === 'pointerup') {
+        if (gesture.type === 'tap') handleTap(pos);
+        else if (gesture.type === 'vertex') refreshAll();
+      }
+      // Tras un pellizco, espero a que se levanten todos los dedos
+      gesture = pointers.size > 0 ? { type: 'none' } : null;
+      if (e.pointerType !== 'mouse') hoverPt = null;
+      renderCAD();
+    }
+    cadCanvas.addEventListener('pointerup', endPointer);
+    cadCanvas.addEventListener('pointercancel', endPointer);
+    cadCanvas.addEventListener('pointerleave', () => { hoverPt = null; renderCAD(); });
+
+    cadCanvas.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      zoomAt(canvasPos(e), state.pxPerMeter * (e.deltaY < 0 ? 1.15 : 1 / 1.15));
+      renderCAD();
+    }, { passive: false });
+
     function renderCAD() {
       const w = cadCanvas.width;
       const h = cadCanvas.height;
+      const zoom = state.pxPerMeter;
       cadCtx.clearRect(0, 0, w, h);
 
-      // Renderizar Fondo del Plano Importado si existe
+      // Mensura de fondo: vive en coordenadas reales, así el dibujo queda siempre sobre ella
       if (state.planImage) {
+        const imgW = state.planImage.width * state.plan.mPerPx;
+        const imgH = state.planImage.height * state.plan.mPerPx;
+        const topLeft = worldToScreen({ x: state.plan.x - imgW / 2, y: state.plan.y + imgH / 2 });
         cadCtx.save();
-        const imgW = state.planImage.width;
-        const imgH = state.planImage.height;
         cadCtx.globalAlpha = 0.6;
-        cadCtx.drawImage(state.planImage, w / 2 - imgW / 2, h / 2 - imgH / 2, imgW, imgH);
+        cadCtx.drawImage(state.planImage, topLeft.x, topLeft.y, imgW * zoom, imgH * zoom);
         cadCtx.restore();
       }
 
       if (state.points.length === 0 && !state.planImage) {
         cadCtx.fillStyle = '#64748b';
-        cadCtx.font = `${13 * window.devicePixelRatio}px monospace`;
+        cadCtx.font = `${13 * dpr}px monospace`;
         cadCtx.textAlign = 'center';
-        cadCtx.fillText("IMPORTÁ UN PLANO O MARCA VÉRTICES EN LA CÁMARA", w / 2, h / 2);
+        cadCtx.fillText("IMPORTÁ UN PLANO, MARCÁ VÉRTICES EN LA CÁMARA", w / 2, h / 2 - 10 * dpr);
+        cadCtx.fillText('O ELEGÍ "TRAZAR MURO" Y TOCÁ LA PANTALLA', w / 2, h / 2 + 10 * dpr);
         return;
       }
 
@@ -709,9 +1120,10 @@
       // Trazado de Muros 2D
       if (state.points.length >= 2) {
         cadCtx.beginPath();
-        cadCtx.lineWidth = 4 * window.devicePixelRatio;
+        cadCtx.lineWidth = 4 * dpr;
         cadCtx.strokeStyle = '#38bdf8';
         cadCtx.lineCap = 'round';
+        cadCtx.lineJoin = 'round';
 
         const startPt = worldToScreen(state.points[0]);
         cadCtx.moveTo(startPt.x, startPt.y);
@@ -725,15 +1137,49 @@
         cadCtx.stroke();
       }
 
+      // Aberturas (puertas en ámbar, ventanas en violeta)
+      const wallLimit = state.isClosed ? state.points.length : state.points.length - 1;
+      state.openings.forEach(o => {
+        if (o.wallIndex >= wallLimit) return;
+        const a = state.points[o.wallIndex];
+        const b = state.points[(o.wallIndex + 1) % state.points.length];
+        const len = Math.hypot(b.x - a.x, b.y - a.y);
+        if (len === 0) return;
+        const half = Math.min(o.width, len) / 2 / len;
+        const t1 = Math.max(0, o.ratio - half);
+        const t2 = Math.min(1, o.ratio + half);
+        const s1 = worldToScreen({ x: a.x + (b.x - a.x) * t1, y: a.y + (b.y - a.y) * t1 });
+        const s2 = worldToScreen({ x: a.x + (b.x - a.x) * t2, y: a.y + (b.y - a.y) * t2 });
+        cadCtx.beginPath();
+        cadCtx.moveTo(s1.x, s1.y);
+        cadCtx.lineTo(s2.x, s2.y);
+        cadCtx.lineWidth = 8 * dpr;
+        cadCtx.lineCap = 'butt';
+        cadCtx.strokeStyle = o.type === 'door' ? '#f59e0b' : '#a78bfa';
+        cadCtx.stroke();
+      });
+
+      // Vista previa del próximo muro (mouse)
+      if (state.currentTool === 'draw-wall' && hoverPt && !state.isClosed && state.points.length > 0) {
+        const last = worldToScreen(state.points[state.points.length - 1]);
+        cadCtx.beginPath();
+        cadCtx.setLineDash([6 * dpr, 6 * dpr]);
+        cadCtx.moveTo(last.x, last.y);
+        cadCtx.lineTo(hoverPt.x, hoverPt.y);
+        cadCtx.lineWidth = 2 * dpr;
+        cadCtx.strokeStyle = 'rgba(56, 189, 248, 0.7)';
+        cadCtx.stroke();
+        cadCtx.setLineDash([]);
+      }
+
       // Renderizar Cotas Métricas
-      const limit = state.isClosed ? state.points.length : state.points.length - 1;
-      for (let i = 0; i < limit; i++) {
+      for (let i = 0; i < wallLimit; i++) {
         const p1 = state.points[i];
         const p2 = state.points[(i + 1) % state.points.length];
         const sp1 = worldToScreen(p1);
         const sp2 = worldToScreen(p2);
 
-        const dist = Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2)).toFixed(2);
+        const dist = Math.hypot(p2.x - p1.x, p2.y - p1.y).toFixed(2);
         const midX = (sp1.x + sp2.x) / 2;
         const midY = (sp1.y + sp2.y) / 2;
 
@@ -741,13 +1187,14 @@
         cadCtx.strokeStyle = '#38bdf8';
         cadCtx.lineWidth = 1;
         const text = `${dist}m`;
-        cadCtx.font = `${11 * window.devicePixelRatio}px monospace`;
+        cadCtx.font = `${11 * dpr}px monospace`;
         cadCtx.textAlign = 'center';
         cadCtx.textBaseline = 'middle';
 
-        const textWidth = cadCtx.measureText(text).width + 12;
-        cadCtx.fillRect(midX - textWidth / 2, midY - 10, textWidth, 20);
-        cadCtx.strokeRect(midX - textWidth / 2, midY - 10, textWidth, 20);
+        const textWidth = cadCtx.measureText(text).width + 12 * dpr;
+        const boxH = 18 * dpr;
+        cadCtx.fillRect(midX - textWidth / 2, midY - boxH / 2, textWidth, boxH);
+        cadCtx.strokeRect(midX - textWidth / 2, midY - boxH / 2, textWidth, boxH);
         cadCtx.fillStyle = '#38bdf8';
         cadCtx.fillText(text, midX, midY);
       }
@@ -756,13 +1203,32 @@
       state.points.forEach((pt) => {
         const sp = worldToScreen(pt);
         cadCtx.beginPath();
-        cadCtx.arc(sp.x, sp.y, 6 * window.devicePixelRatio, 0, Math.PI * 2);
+        cadCtx.arc(sp.x, sp.y, 6 * dpr, 0, Math.PI * 2);
         cadCtx.fillStyle = '#10b981';
         cadCtx.fill();
-        cadCtx.lineWidth = 2 * window.devicePixelRatio;
+        cadCtx.lineWidth = 2 * dpr;
         cadCtx.strokeStyle = '#ffffff';
         cadCtx.stroke();
       });
+
+      // Línea de calibración en curso
+      if (state.calibrationStart) {
+        const cs = worldToScreen(state.calibrationStart);
+        cadCtx.strokeStyle = '#fbbf24';
+        cadCtx.fillStyle = '#fbbf24';
+        cadCtx.lineWidth = 2 * dpr;
+        if (hoverPt) {
+          cadCtx.beginPath();
+          cadCtx.setLineDash([6 * dpr, 6 * dpr]);
+          cadCtx.moveTo(cs.x, cs.y);
+          cadCtx.lineTo(hoverPt.x, hoverPt.y);
+          cadCtx.stroke();
+          cadCtx.setLineDash([]);
+        }
+        cadCtx.beginPath();
+        cadCtx.arc(cs.x, cs.y, 5 * dpr, 0, Math.PI * 2);
+        cadCtx.fill();
+      }
     }
 
     // -------------------------------------------------------------
@@ -1008,6 +1474,7 @@
         tabCad.classList.remove('text-slate-400');
         viewCad.classList.remove('hidden');
         resizeCanvas();
+        if (!state.planImage && state.points.length > 0) fitView();
       } else if (tabId === '3d') {
         tab3D.classList.add('text-emerald-400');
         tab3D.classList.remove('text-slate-400');
