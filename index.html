@@ -3,14 +3,17 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>ScanArch Studio Pro - Relevamiento AR, Importación de Mensura y Modelado 3D</title>
-  
+  <title>ScanArch Studio - Planos inmobiliarios 2D y 3D</title>
+
   <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
-  
+
   <!-- Lucide Icons -->
   <script src="https://unpkg.com/lucide@latest"></script>
-  
+
+  <!-- Konva: motor del editor 2D -->
+  <script src="https://unpkg.com/konva@9.3.18/konva.min.js"></script>
+
   <!-- Three.js, Controls & Exporters -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
@@ -19,7 +22,7 @@
 
   <!-- PDF.js para lectura de planos en PDF -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-  <script>pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';</script>
+  <script>if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';</script>
 
   <!-- DXF Parser para lectura de planos CAD -->
   <script src="https://cdn.jsdelivr.net/npm/dxf-parser@1.1.2/dist/dxf-parser.min.js"></script>
@@ -33,6 +36,7 @@
       overflow: hidden;
       touch-action: none;
       user-select: none;
+      -webkit-user-select: none;
       background-color: #090d16;
       color: #f1f5f9;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -43,22 +47,18 @@
       html, body { height: 100dvh; }
     }
 
-    .blueprint-grid {
-      background-color: #0b1329;
-      background-image: 
-        linear-gradient(rgba(56, 189, 248, 0.25) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(56, 189, 248, 0.25) 1px, transparent 1px),
-        linear-gradient(rgba(30, 58, 138, 0.15) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(30, 58, 138, 0.15) 1px, transparent 1px);
-      background-size: 100px 100px, 100px 100px, 20px 20px, 20px 20px;
-      background-position: -1px -1px;
-    }
+    input, select { user-select: text; -webkit-user-select: text; }
 
     .glass-panel {
-      background: rgba(15, 23, 42, 0.85);
+      background: rgba(15, 23, 42, 0.9);
       backdrop-filter: blur(12px);
       border: 1px solid rgba(255, 255, 255, 0.1);
     }
+
+    /* Barras con desplazamiento táctil propio */
+    .scroll-x { overflow-x: auto; touch-action: pan-x; scrollbar-width: none; }
+    .scroll-x::-webkit-scrollbar { display: none; }
+    .scroll-y { overflow-y: auto; touch-action: pan-y; }
 
     .reticle-ring {
       animation: pulse-ring 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
@@ -73,62 +73,62 @@
 <body class="flex flex-col h-full w-full">
 
   <!-- BARRA SUPERIOR / HEADER -->
-  <header class="h-14 bg-slate-900/90 backdrop-blur border-b border-slate-800 px-4 flex items-center justify-between z-30 flex-shrink-0">
-    <div class="flex items-center gap-3">
-      <div class="w-9 h-9 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 shadow-inner">
+  <header class="h-14 bg-slate-900/90 backdrop-blur border-b border-slate-800 px-3 flex items-center justify-between z-40 flex-shrink-0">
+    <div class="flex items-center gap-2.5 min-w-0">
+      <div class="w-9 h-9 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 flex-shrink-0">
         <i data-lucide="layers" class="w-5 h-5"></i>
       </div>
-      <div>
-        <h1 class="text-sm font-bold tracking-wide text-white leading-tight flex items-center gap-2">
-          ScanArch Studio Pro <span class="px-1.5 py-0.5 rounded text-[9px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">v2.0 3D/CAD</span>
-        </h1>
-        <p class="text-[10px] text-slate-400 font-mono">IMPORTACIÓN DE MENSURA &middot; RELEVAMIENTO AR &middot; MODELADO 3D</p>
+      <div class="min-w-0">
+        <h1 class="text-sm font-bold tracking-wide text-white leading-tight truncate">ScanArch Studio</h1>
+        <p class="text-[10px] text-slate-400 font-mono truncate">PLANO 2D &middot; RELEVAMIENTO &middot; 3D</p>
       </div>
     </div>
 
-    <!-- Indicadores Rápidos & Acciones Principales -->
     <div class="flex items-center gap-3 text-xs font-mono">
-      <div class="hidden md:flex items-center gap-4">
-        <div class="flex flex-col items-end">
-          <span class="text-slate-400 text-[10px]">ÁREA PLANTA</span>
-          <span id="metric-area-top" class="text-emerald-400 font-bold">0.00 m²</span>
-        </div>
-        <div class="flex flex-col items-end">
-          <span class="text-slate-400 text-[10px]">VÉRTICES</span>
-          <span id="metric-points-count" class="text-sky-400 font-bold">0 pts</span>
-        </div>
+      <div class="flex flex-col items-end">
+        <span class="text-slate-400 text-[10px]">SUPERFICIE</span>
+        <span id="metric-area-top" class="text-emerald-400 font-bold">0,00 m²</span>
       </div>
 
-      <!-- Botón Cargar Mensura / Archivo -->
-      <label class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-medium text-xs cursor-pointer shadow-lg shadow-sky-950 transition active:scale-95">
-        <i data-lucide="upload" class="w-4 h-4"></i>
-        <span class="hidden sm:inline">Importar Mensura</span>
-        <input type="file" id="input-plan-file" accept="image/*,.pdf,.dxf" class="hidden">
-      </label>
-
-      <!-- Botón Exportar Selector -->
+      <!-- Menú principal: proyecto, mensura y exportaciones -->
       <div class="relative">
-        <button id="btn-export-menu" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-medium text-xs shadow-lg shadow-emerald-950 transition active:scale-95">
-          <i data-lucide="download" class="w-4 h-4"></i>
-          <span>Exportar</span>
-          <i data-lucide="chevron-down" class="w-3.5 h-3.5"></i>
+        <button id="btn-menu" class="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-medium text-xs shadow-lg active:scale-95">
+          <i data-lucide="menu" class="w-4 h-4"></i>
+          <span>Menú</span>
         </button>
 
-        <div id="export-menu" class="absolute right-0 top-full mt-1 w-48 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl hidden z-50 py-1">
-          <button id="btn-export-dxf" class="w-full px-3 py-2 text-left hover:bg-slate-800 text-xs flex items-center gap-2 text-slate-200">
-            <i data-lucide="file-text" class="w-4 h-4 text-sky-400"></i> Plano CAD (.DXF 2D)
+        <div id="main-menu" class="absolute right-0 top-full mt-1 w-60 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl hidden z-50 py-1 text-xs text-slate-200 font-sans">
+          <div class="px-3 pt-2 pb-1 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Proyecto</div>
+          <label class="w-full px-3 py-2.5 hover:bg-slate-800 flex items-center gap-2 cursor-pointer">
+            <i data-lucide="upload" class="w-4 h-4 text-sky-400"></i> Importar mensura (imagen, PDF, DXF)
+            <input type="file" id="input-plan-file" accept="image/*,.pdf,.dxf" class="hidden">
+          </label>
+          <label class="w-full px-3 py-2.5 hover:bg-slate-800 flex items-center gap-2 cursor-pointer">
+            <i data-lucide="folder-open" class="w-4 h-4 text-amber-400"></i> Abrir proyecto (.json)
+            <input type="file" id="input-project-file" accept=".json,application/json" class="hidden">
+          </label>
+          <button id="btn-save-project" class="w-full px-3 py-2.5 text-left hover:bg-slate-800 flex items-center gap-2">
+            <i data-lucide="save" class="w-4 h-4 text-emerald-400"></i> Guardar proyecto (.json)
           </button>
-          <button id="btn-export-obj" class="w-full px-3 py-2 text-left hover:bg-slate-800 text-xs flex items-center gap-2 text-slate-200">
+          <button id="btn-new-project" class="w-full px-3 py-2.5 text-left hover:bg-slate-800 flex items-center gap-2">
+            <i data-lucide="file-plus" class="w-4 h-4 text-rose-400"></i> Proyecto nuevo
+          </button>
+
+          <div class="px-3 pt-2 pb-1 text-[10px] font-bold text-slate-500 uppercase tracking-wider border-t border-slate-800 mt-1">Exportar</div>
+          <button id="btn-export-png" class="w-full px-3 py-2.5 text-left hover:bg-slate-800 flex items-center gap-2">
+            <i data-lucide="image" class="w-4 h-4 text-rose-400"></i> Plano en imagen (.PNG)
+          </button>
+          <button id="btn-export-dxf" class="w-full px-3 py-2.5 text-left hover:bg-slate-800 flex items-center gap-2">
+            <i data-lucide="file-text" class="w-4 h-4 text-sky-400"></i> Plano CAD (.DXF)
+          </button>
+          <button id="btn-export-glb" class="w-full px-3 py-2.5 text-left hover:bg-slate-800 flex items-center gap-2">
+            <i data-lucide="box" class="w-4 h-4 text-purple-400"></i> Modelo 3D (.GLB)
+          </button>
+          <button id="btn-export-obj" class="w-full px-3 py-2.5 text-left hover:bg-slate-800 flex items-center gap-2">
             <i data-lucide="box" class="w-4 h-4 text-emerald-400"></i> Modelo 3D (.OBJ)
           </button>
-          <button id="btn-export-glb" class="w-full px-3 py-2 text-left hover:bg-slate-800 text-xs flex items-center gap-2 text-slate-200">
-            <i data-lucide="layers" class="w-4 h-4 text-purple-400"></i> Modelo 3D (.GLB / GLTF)
-          </button>
-          <button id="btn-export-ply" class="w-full px-3 py-2 text-left hover:bg-slate-800 text-xs flex items-center gap-2 text-slate-200">
-            <i data-lucide="cloud" class="w-4 h-4 text-amber-400"></i> Nube Puntos (.PLY)
-          </button>
-          <button id="btn-export-png" class="w-full px-3 py-2 text-left hover:bg-slate-800 text-xs flex items-center gap-2 text-slate-200 border-t border-slate-800">
-            <i data-lucide="image" class="w-4 h-4 text-rose-400"></i> Imagen Plano (.PNG)
+          <button id="btn-export-ply" class="w-full px-3 py-2.5 text-left hover:bg-slate-800 flex items-center gap-2">
+            <i data-lucide="cloud" class="w-4 h-4 text-amber-400"></i> Nube de puntos (.PLY)
           </button>
         </div>
       </div>
@@ -136,16 +136,87 @@
   </header>
 
   <!-- CONTENEDOR PRINCIPAL DE PANTALLAS -->
-  <main class="relative flex-1 w-full h-full overflow-hidden">
+  <main class="relative flex-1 w-full overflow-hidden">
 
-    <!-- VISTA 1: CÁMARA Y RELEVAMIENTO AR EN TIEMPO REAL -->
-    <div id="view-camera" class="absolute inset-0 z-10 flex flex-col justify-between">
+    <!-- VISTA: EDITOR DE PLANO 2D -->
+    <div id="view-cad" class="absolute inset-0 flex flex-col bg-slate-900">
+      <!-- Herramientas -->
+      <div class="scroll-x bg-slate-900 border-b border-slate-800 flex-shrink-0">
+        <div class="flex items-center gap-1.5 p-2 w-max text-[11px] font-medium">
+          <div class="flex bg-slate-800 rounded-lg p-0.5 border border-slate-700">
+            <button data-tool="select" class="px-2.5 py-1.5 rounded-md text-slate-300 flex items-center gap-1 whitespace-nowrap">
+              <i data-lucide="mouse-pointer" class="w-3.5 h-3.5"></i> Seleccionar
+            </button>
+            <button data-tool="wall" class="px-2.5 py-1.5 rounded-md text-slate-300 flex items-center gap-1 whitespace-nowrap">
+              <i data-lucide="pencil-ruler" class="w-3.5 h-3.5"></i> Muro
+            </button>
+            <button data-tool="door" class="px-2.5 py-1.5 rounded-md text-slate-300 flex items-center gap-1 whitespace-nowrap">
+              <i data-lucide="door-open" class="w-3.5 h-3.5"></i> Puerta
+            </button>
+            <button data-tool="window" class="px-2.5 py-1.5 rounded-md text-slate-300 flex items-center gap-1 whitespace-nowrap">
+              <i data-lucide="app-window" class="w-3.5 h-3.5"></i> Ventana
+            </button>
+            <button data-tool="object" class="px-2.5 py-1.5 rounded-md text-slate-300 flex items-center gap-1 whitespace-nowrap">
+              <i data-lucide="sofa" class="w-3.5 h-3.5"></i> Objeto
+            </button>
+            <button data-tool="calibrate" class="px-2.5 py-1.5 rounded-md text-slate-300 flex items-center gap-1 whitespace-nowrap">
+              <i data-lucide="ruler" class="w-3.5 h-3.5"></i> Calibrar
+            </button>
+          </div>
+
+          <button id="btn-undo" class="px-2.5 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-amber-300 flex items-center gap-1 whitespace-nowrap disabled:opacity-40">
+            <i data-lucide="undo-2" class="w-3.5 h-3.5"></i> Deshacer
+          </button>
+          <button id="btn-redo" class="px-2.5 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-amber-300 flex items-center gap-1 whitespace-nowrap">
+            <i data-lucide="redo-2" class="w-3.5 h-3.5"></i> Rehacer
+          </button>
+          <button id="btn-fit-view" class="px-2.5 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-200 flex items-center gap-1 whitespace-nowrap">
+            <i data-lucide="maximize" class="w-3.5 h-3.5"></i> Encuadrar
+          </button>
+        </div>
+      </div>
+
+      <!-- Ayuda de la herramienta activa -->
+      <div class="px-3 py-1.5 bg-slate-950/80 border-b border-slate-800 flex items-center justify-between gap-2 text-[11px] text-slate-300 flex-shrink-0">
+        <span id="cad-hint" class="leading-snug"></span>
+        <button id="btn-finish-wall" class="hidden px-2.5 py-1 rounded-lg bg-amber-500 text-slate-950 font-bold whitespace-nowrap">Terminar muro</button>
+      </div>
+
+      <!-- Lienzo Konva -->
+      <div class="relative flex-1 w-full overflow-hidden bg-white">
+        <div id="cad-stage" class="absolute inset-0" style="touch-action: none;"></div>
+
+        <!-- Aviso de mensura cargada -->
+        <div id="plan-loaded-banner" class="hidden absolute top-2 left-2 glass-panel rounded-lg px-2.5 py-1.5 text-[11px] flex items-center gap-2 z-20">
+          <i data-lucide="file-check" class="w-4 h-4 text-sky-400"></i>
+          <span class="text-slate-200">Mensura: <b id="plan-status" class="text-amber-300"></b></span>
+          <button id="btn-remove-plan-bg" class="text-slate-400 hover:text-rose-400" title="Quitar mensura"><i data-lucide="x" class="w-4 h-4"></i></button>
+        </div>
+
+        <!-- Propiedades del elemento seleccionado -->
+        <div id="sel-panel" class="hidden absolute bottom-2 left-2 right-2 glass-panel rounded-xl px-3 py-2 text-xs flex flex-wrap items-center gap-x-3 gap-y-2 z-20"></div>
+      </div>
+
+      <!-- Selector de objetos -->
+      <div id="object-picker" class="hidden absolute inset-0 z-30 bg-black/60 flex items-end sm:items-center justify-center">
+        <div class="w-full sm:max-w-lg max-h-[75%] bg-slate-900 border border-slate-700 rounded-t-2xl sm:rounded-2xl flex flex-col">
+          <div class="flex items-center justify-between px-4 py-3 border-b border-slate-800">
+            <span class="text-sm font-bold text-white">Elegí un objeto</span>
+            <button id="btn-close-picker" class="text-slate-400 hover:text-white"><i data-lucide="x" class="w-5 h-5"></i></button>
+          </div>
+          <div id="object-grid" class="scroll-y p-4"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- VISTA: RELEVAMIENTO CON CÁMARA -->
+    <div id="view-camera" class="absolute inset-0 flex flex-col justify-between hidden">
       <video id="ar-video" autoplay playsinline muted class="absolute inset-0 w-full h-full object-cover"></video>
       <div class="absolute inset-0 bg-gradient-to-b from-black/60 via-transparent to-black/80 pointer-events-none"></div>
 
       <!-- Pantalla de activación / error de cámara -->
       <div id="cam-start-overlay" class="absolute inset-0 z-20 flex flex-col items-center justify-center gap-4 bg-black/85 p-6 text-center">
-        <button id="btn-start-camera" class="flex items-center gap-2 px-5 py-3 rounded-xl bg-emerald-500 text-slate-950 font-bold text-sm shadow-lg shadow-emerald-950 active:scale-95">
+        <button id="btn-start-camera" class="flex items-center gap-2 px-5 py-3 rounded-xl bg-emerald-500 text-slate-950 font-bold text-sm shadow-lg active:scale-95">
           <i data-lucide="camera" class="w-5 h-5"></i>
           <span>Activar cámara y giroscopio</span>
         </button>
@@ -153,7 +224,7 @@
       </div>
 
       <!-- HUD Superior en Cámara -->
-      <div class="relative p-4 flex justify-between items-start pointer-events-auto">
+      <div class="relative p-3 flex justify-between items-start pointer-events-auto">
         <div class="glass-panel rounded-xl p-3 text-xs font-mono space-y-1">
           <div class="flex items-center gap-2">
             <span id="cam-status-dot" class="inline-block w-2 h-2 rounded-full bg-rose-500"></span>
@@ -161,12 +232,12 @@
           </div>
           <div class="text-slate-300">Giroscopio: <span id="hud-sensor" class="text-amber-400 font-bold">sin datos</span></div>
           <div class="text-slate-300">Rumbo del muro: <span id="hud-heading" class="text-white font-bold">0°</span></div>
-          <div class="text-slate-300">Vértices Fijados: <span id="hud-pts" class="text-white font-bold">0</span></div>
+          <div class="text-slate-300">Vértices del recorrido: <span id="hud-pts" class="text-white font-bold">0</span></div>
         </div>
 
         <div class="flex items-center gap-2">
-          <button id="btn-request-gyro" class="hidden px-3 py-2 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-300 font-medium text-xs flex items-center gap-1.5">
-            <i data-lucide="compass" class="w-4 h-4"></i> Activar Giroscopio (iOS)
+          <button id="btn-request-gyro" class="hidden px-3 py-2 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-300 font-medium text-xs">
+            Activar Giroscopio
           </button>
           <button id="btn-switch-camera" class="w-10 h-10 rounded-full glass-panel flex items-center justify-center text-white active:scale-95">
             <i data-lucide="refresh-cw" class="w-5 h-5"></i>
@@ -174,29 +245,28 @@
         </div>
       </div>
 
-      <!-- Retículo Central (Aim Meter) -->
+      <!-- Retículo Central -->
       <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
         <div class="relative flex items-center justify-center w-28 h-28">
           <div class="absolute inset-0 rounded-full border border-emerald-400/40 reticle-ring"></div>
-          <div class="w-12 h-12 rounded-full border-2 border-emerald-400 flex items-center justify-center shadow-[0_0_15px_rgba(52,211,153,0.5)]">
+          <div class="w-12 h-12 rounded-full border-2 border-emerald-400 flex items-center justify-center">
             <div class="w-2 h-2 rounded-full bg-emerald-400"></div>
           </div>
           <div class="absolute w-full h-[1px] bg-emerald-400/40"></div>
           <div class="absolute h-full w-[1px] bg-emerald-400/40"></div>
-          <div class="absolute -bottom-10 px-3 py-1 rounded-lg bg-black/80 border border-emerald-500/50 text-xs font-mono text-emerald-300 font-bold whitespace-nowrap shadow-lg">
-            Tramo Actual: <span id="hud-segment-dist">2.50</span> m
+          <div class="absolute -bottom-10 px-3 py-1 rounded-lg bg-black/80 border border-emerald-500/50 text-xs font-mono text-emerald-300 font-bold whitespace-nowrap">
+            Tramo actual: <span id="hud-segment-dist">2.50</span> m
           </div>
         </div>
       </div>
 
-      <!-- Controles Inferiores AR -->
-      <div class="relative p-4 pb-6 flex flex-col gap-3 pointer-events-auto">
-        <!-- Ajuste Métrico Manual del Tramo -->
+      <!-- Controles Inferiores -->
+      <div class="relative p-3 pb-4 flex flex-col gap-2 pointer-events-auto">
         <div class="flex items-center justify-center gap-3">
           <button id="btn-dist-dec" class="px-3 py-2 rounded-xl glass-panel text-white font-mono text-xs font-bold active:scale-90">- 0.25m</button>
-          <div class="px-5 py-2 rounded-xl bg-emerald-950/90 border border-emerald-500/50 text-emerald-400 font-mono text-xs font-bold text-center min-w-[130px] shadow-lg">
+          <button id="btn-dist-edit" class="px-5 py-2 rounded-xl bg-emerald-950/90 border border-emerald-500/50 text-emerald-400 font-mono text-xs font-bold text-center min-w-[130px]">
             <span id="label-curr-dist" class="text-sm">2.50</span> METROS
-          </div>
+          </button>
           <button id="btn-dist-inc" class="px-3 py-2 rounded-xl glass-panel text-white font-mono text-xs font-bold active:scale-90">+ 0.25m</button>
         </div>
 
@@ -208,13 +278,12 @@
           <button id="btn-undo-ar" class="py-2 rounded-xl glass-panel text-amber-300 font-mono text-xs font-bold active:scale-90">Deshacer</button>
         </div>
 
-        <!-- Acciones AR -->
         <div class="grid grid-cols-3 gap-2">
-          <button id="btn-reset" class="flex flex-col items-center justify-center py-2.5 rounded-xl bg-rose-500/20 border border-rose-500/30 text-rose-300 font-semibold text-xs active:scale-95">
-            <i data-lucide="trash-2" class="w-5 h-5 mb-0.5"></i>
-            <span>Reiniciar</span>
+          <button id="btn-new-run" class="flex flex-col items-center justify-center py-2.5 rounded-xl bg-slate-500/20 border border-slate-400/30 text-slate-200 font-semibold text-xs active:scale-95">
+            <i data-lucide="corner-down-right" class="w-5 h-5 mb-0.5"></i>
+            <span>Nuevo recorrido</span>
           </button>
-          <button id="btn-mark-corner" class="flex flex-col items-center justify-center py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs shadow-lg shadow-emerald-950 active:scale-95">
+          <button id="btn-mark-corner" class="flex flex-col items-center justify-center py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs shadow-lg active:scale-95">
             <i data-lucide="map-pin" class="w-5 h-5 mb-0.5"></i>
             <span>Fijar Vértice</span>
           </button>
@@ -226,1280 +295,59 @@
       </div>
     </div>
 
-    <!-- VISTA 2: PLANO 2D & EDITOR CAD DE MENSURA -->
-    <div id="view-cad" class="absolute inset-0 z-0 blueprint-grid flex flex-col hidden">
-      <!-- Barra Herramientas CAD -->
-      <div class="p-3 bg-slate-900/90 border-b border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs font-mono">
-        <div class="flex items-center gap-2">
-          <span class="text-sky-400 font-bold flex items-center gap-1.5">
-            <i data-lucide="drafting-compass" class="w-4 h-4"></i> EDITOR DE PLANO 2D
-          </span>
-          <span class="text-slate-500">|</span>
-          <span id="label-scale-info" class="text-slate-300">Escala: <span id="val-px-per-m">sin calibrar</span></span>
-        </div>
-
-        <div class="flex items-center gap-2">
-          <!-- Modos de Edición CAD -->
-          <div class="flex bg-slate-800 rounded-lg p-0.5 border border-slate-700">
-            <button id="tool-select" class="px-2.5 py-1 rounded-md bg-sky-600 text-white font-medium text-[11px] flex items-center gap-1">
-              <i data-lucide="mouse-pointer" class="w-3.5 h-3.5"></i> Seleccionar
-            </button>
-            <button id="tool-draw-wall" class="px-2.5 py-1 rounded-md hover:bg-slate-700 text-slate-300 text-[11px] flex items-center gap-1">
-              <i data-lucide="minus" class="w-3.5 h-3.5"></i> Trazar Muro
-            </button>
-            <button id="tool-add-door" class="px-2.5 py-1 rounded-md hover:bg-slate-700 text-slate-300 text-[11px] flex items-center gap-1">
-              <i data-lucide="door-open" class="w-3.5 h-3.5"></i> Puerta
-            </button>
-            <button id="tool-add-window" class="px-2.5 py-1 rounded-md hover:bg-slate-700 text-slate-300 text-[11px] flex items-center gap-1">
-              <i data-lucide="app-window" class="w-3.5 h-3.5"></i> Ventana
-            </button>
-            <button id="tool-calibrate" class="px-2.5 py-1 rounded-md hover:bg-slate-700 text-amber-400 text-[11px] flex items-center gap-1">
-              <i data-lucide="ruler" class="w-3.5 h-3.5"></i> Calibrar Escala
-            </button>
-          </div>
-
-          <button id="btn-undo-cad" class="px-2.5 py-1 rounded-lg bg-slate-800 border border-slate-700 text-amber-300 hover:bg-slate-700 font-medium text-[11px] flex items-center gap-1">
-            <i data-lucide="undo-2" class="w-3.5 h-3.5"></i> Deshacer
-          </button>
-          <button id="btn-close-cad" class="px-2.5 py-1 rounded-lg bg-slate-800 border border-slate-700 text-sky-300 hover:bg-slate-700 font-medium text-[11px] flex items-center gap-1">
-            <i data-lucide="check-circle" class="w-3.5 h-3.5"></i> Cerrar Planta
-          </button>
-          <button id="btn-fit-view" class="px-2.5 py-1 rounded-lg bg-slate-800 border border-slate-700 text-slate-200 hover:bg-slate-700 font-medium text-[11px] flex items-center gap-1">
-            <i data-lucide="maximize" class="w-3.5 h-3.5"></i> Encuadrar
-          </button>
-
-          <button id="btn-auto-vectorize" class="px-2.5 py-1 rounded-lg bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/30 font-medium text-[11px] flex items-center gap-1">
-            <i data-lucide="wand-2" class="w-3.5 h-3.5"></i> Vectorizar Imagen
-          </button>
-        </div>
-      </div>
-
-      <!-- Canvas 2D interactivo -->
-      <div class="relative flex-1 w-full h-full overflow-hidden">
-        <canvas id="cad-canvas" class="w-full h-full cursor-crosshair" style="touch-action: none;"></canvas>
-        
-        <!-- Banner flotante cuando hay plano importado -->
-        <div id="plan-loaded-banner" class="hidden absolute bottom-3 left-3 right-3 sm:right-auto glass-panel rounded-xl p-3 max-w-sm text-xs space-y-1.5 z-20 pointer-events-none">
-          <div class="flex items-center justify-between text-sky-400 font-bold">
-            <span class="flex items-center gap-1.5"><i data-lucide="file-check" class="w-4 h-4"></i> Mensura Importada</span>
-            <button id="btn-remove-plan-bg" class="text-slate-400 hover:text-rose-400 pointer-events-auto"><i data-lucide="x" class="w-4 h-4"></i></button>
-          </div>
-          <p id="plan-banner-text" class="text-[11px] text-slate-300">1) "Calibrar Escala": tocá los dos extremos de una cota conocida e ingresá sus metros. 2) "Trazar Muro": tocá cada esquina sobre la mensura. Arrastrar = mover la vista, pellizcar o rueda = zoom.</p>
-        </div>
-      </div>
-    </div>
-
-    <!-- VISTA 3: MODELADOR Y VISOR ARQUITECTÓNICO 3D (THREE.JS) -->
-    <div id="view-3d" class="absolute inset-0 z-0 bg-slate-950 hidden">
+    <!-- VISTA: MODELO 3D -->
+    <div id="view-3d" class="absolute inset-0 bg-slate-200 hidden">
       <div id="three-container" class="w-full h-full"></div>
 
-      <!-- Ajustes 3D Superpuestos -->
-      <div class="absolute top-4 left-4 glass-panel rounded-xl p-3 text-xs font-mono space-y-2 z-20 max-w-xs">
-        <div class="font-bold text-sky-400 border-b border-slate-700/60 pb-1 flex items-center gap-1.5">
-          <i data-lucide="sliders" class="w-4 h-4"></i> Parámetros de Extrusión 3D
-        </div>
+      <div class="absolute top-3 left-3 glass-panel rounded-xl p-3 text-xs font-mono space-y-2 z-20">
         <div class="flex items-center justify-between gap-4">
-          <label class="text-slate-300 text-[11px]">Altura Muros:</label>
+          <label class="text-slate-300 text-[11px]">Altura muros (m)</label>
           <input type="number" id="input-wall-height" value="2.60" step="0.1" min="1" max="10" class="w-16 bg-slate-800 border border-slate-700 rounded px-2 py-0.5 text-right font-bold text-emerald-400 text-xs">
         </div>
         <div class="flex items-center justify-between gap-4">
-          <label class="text-slate-300 text-[11px]">Espesor Muros:</label>
-          <input type="number" id="input-wall-thickness" value="0.20" step="0.05" min="0.05" max="1.0" class="w-16 bg-slate-800 border border-slate-700 rounded px-2 py-0.5 text-right font-bold text-sky-400 text-xs">
+          <label class="text-slate-300 text-[11px]">Espesor muros (m)</label>
+          <input type="number" id="input-wall-thickness" value="0.15" step="0.05" min="0.05" max="1.0" class="w-16 bg-slate-800 border border-slate-700 rounded px-2 py-0.5 text-right font-bold text-sky-400 text-xs">
         </div>
-        <div class="flex items-center justify-between gap-4 border-t border-slate-800 pt-1.5">
-          <label class="text-slate-300 text-[11px]">Modo Render:</label>
-          <select id="select-render-mode" class="bg-slate-800 border border-slate-700 rounded px-2 py-0.5 text-xs text-slate-200">
-            <option value="solid">Sólido Arquitectónico</option>
-            <option value="wireframe">Estructura de Alambre</option>
-            <option value="pointcloud">Nube de Puntos LiDAR</option>
+        <div class="flex items-center justify-between gap-2 border-t border-slate-700 pt-2">
+          <select id="select-render-mode" class="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200">
+            <option value="solid">Sólido</option>
+            <option value="wireframe">Alambre</option>
           </select>
+          <button id="btn-frame-3d" class="px-2 py-1 rounded bg-slate-800 border border-slate-700 text-slate-200">Encuadrar</button>
         </div>
       </div>
 
-      <!-- HUD Inferior 3D -->
-      <div class="absolute bottom-4 left-4 right-4 flex items-center justify-between pointer-events-none text-xs font-mono">
-        <div class="glass-panel px-3 py-2 rounded-xl text-slate-300 pointer-events-auto">
-          <div>Muros 3D: <span id="hud-3d-walls" class="text-sky-400 font-bold">0</span></div>
-          <div>Aberturas: <span id="hud-3d-openings" class="text-amber-400 font-bold">0</span></div>
-        </div>
-        <div class="glass-panel px-3 py-2 rounded-xl text-[11px] text-slate-400 text-right pointer-events-auto hidden sm:block">
-          Navegación 3D: Clic Izq: Rotar &middot; Clic Der: Paneo &middot; Rueda: Zoom
-        </div>
+      <div class="absolute bottom-3 left-3 glass-panel px-3 py-2 rounded-xl text-xs font-mono text-slate-300 pointer-events-none">
+        Muros: <span id="hud-3d-walls" class="text-sky-400 font-bold">0</span> &middot;
+        Aberturas: <span id="hud-3d-openings" class="text-amber-400 font-bold">0</span> &middot;
+        Objetos: <span id="hud-3d-objects" class="text-emerald-400 font-bold">0</span>
       </div>
     </div>
   </main>
 
   <!-- PANEL INFERIOR DE NAVEGACIÓN POR PESTAÑAS -->
   <nav class="h-16 bg-slate-900 border-t border-slate-800 grid grid-cols-3 z-30 flex-shrink-0">
-    <button id="tab-cam" class="flex flex-col items-center justify-center gap-1 text-emerald-400 font-medium text-[11px]">
-      <i data-lucide="camera" class="w-5 h-5"></i>
-      <span>1. Relevamiento AR</span>
-    </button>
-    <button id="tab-cad" class="flex flex-col items-center justify-center gap-1 text-slate-400 font-medium text-[11px] hover:text-white transition">
+    <button id="tab-cad" class="flex flex-col items-center justify-center gap-1 text-emerald-400 font-medium text-[11px]">
       <i data-lucide="drafting-compass" class="w-5 h-5"></i>
-      <span>2. Mensura y Plano 2D</span>
+      <span>Plano 2D</span>
     </button>
-    <button id="tab-3d" class="flex flex-col items-center justify-center gap-1 text-slate-400 font-medium text-[11px] hover:text-white transition">
+    <button id="tab-cam" class="flex flex-col items-center justify-center gap-1 text-slate-400 font-medium text-[11px]">
+      <i data-lucide="camera" class="w-5 h-5"></i>
+      <span>Relevamiento</span>
+    </button>
+    <button id="tab-3d" class="flex flex-col items-center justify-center gap-1 text-slate-400 font-medium text-[11px]">
       <i data-lucide="box" class="w-5 h-5"></i>
-      <span>3. Diseño 3D Arquitectónico</span>
+      <span>Modelo 3D</span>
     </button>
   </nav>
 
-  <!-- LÓGICA PRINCIPAL DE LA APLICACIÓN -->
-  <script>
-    if (window.lucide) lucide.createIcons();
-
-    // ESTADO GLOBAL DE LA APLICACIÓN
-    const state = {
-      points: [],              // Vértices del perímetro [{x, y}] en metros
-      openings: [],            // Aberturas [{type: 'door'|'window', wallIndex, ratio: 0.5, width: 0.9}]
-      currentDistance: 2.50,   // Distancia métrica objetivo para siguiente punto
-      currentHeading: 0,       // Rumbo giroscópico (0-360°)
-      wallHeight: 2.60,        // Altura de muros en metros
-      wallThickness: 0.20,     // Espesor de muros en metros
-      isClosed: false,         // Polígono de planta cerrado
-      cameraFacing: 'environment',
-      activeTab: 'cam',        // 'cam' | 'cad' | '3d'
-      
-      // Estado del Plano de Mensura Cargado
-      planImage: null,         // Image Object si se carga imagen o PDF
-      planDxfData: null,       // Datos parseados si se carga DXF
-      pxPerMeter: 50,          // Escala del canvas CAD (píxeles por metro)
-      panOffset: { x: 0, y: 0 },// Desplazamiento de vista en canvas CAD
-      currentTool: 'select',   // 'select' | 'draw-wall' | 'add-door' | 'add-window' | 'calibrate'
-      calibrationStart: null,  // Punto de inicio para calibración de escala
-      renderMode: 'solid'      // 'solid' | 'wireframe' | 'pointcloud'
-    };
-
-    // REFERENCIAS DEL DOM
-    const video = document.getElementById('ar-video');
-    const hudHeading = document.getElementById('hud-heading');
-    const hudPts = document.getElementById('hud-pts');
-    const hudSegmentDist = document.getElementById('hud-segment-dist');
-    const labelCurrDist = document.getElementById('label-curr-dist');
-    const metricAreaTop = document.getElementById('metric-area-top');
-    const metricPointsCount = document.getElementById('metric-points-count');
-
-    const viewCamera = document.getElementById('view-camera');
-    const viewCad = document.getElementById('view-cad');
-    const view3D = document.getElementById('view-3d');
-
-    const tabCam = document.getElementById('tab-cam');
-    const tabCad = document.getElementById('tab-cad');
-    const tab3D = document.getElementById('tab-3d');
-
-    const cadCanvas = document.getElementById('cad-canvas');
-    const cadCtx = cadCanvas.getContext('2d');
-    const threeContainer = document.getElementById('three-container');
-
-    // Estado adicional: rumbo, mensura en coordenadas reales y origen del dibujo
-    Object.assign(state, {
-      headingOffset: 0,          // Giro manual sumado al rumbo del sensor (botones ±90°)
-      baseHeading: null,         // Rumbo del primer muro (referencia para la escuadra)
-      snap90: true,              // Ajustar cada muro a múltiplos de 90° respecto del primero
-      sensorActive: false,       // true cuando el giroscopio entrega datos
-      plan: { x: 0, y: 0, mPerPx: 0.02 }, // Centro de la mensura (m) y metros por píxel de imagen
-      planCalibrated: false,
-      pointsLockedToPlan: false  // true si el dibujo se trazó sobre la mensura (la sigue al calibrar)
-    });
-
-    const dpr = window.devicePixelRatio || 1;
-
-    function normalizeDeg(d) {
-      return ((d % 360) + 360) % 360;
-    }
-
-    function refreshAll() {
-      updateMetrics();
-      renderCAD();
-      rebuild3DScene();
-    }
-
-    // -------------------------------------------------------------
-    // 1. GESTIÓN DE CÁMARA Y GIROSCOPIO (iOS & Android)
-    // -------------------------------------------------------------
-    let currentStream = null;
-    const camOverlay = document.getElementById('cam-start-overlay');
-    const camError = document.getElementById('cam-error');
-    const camStatusDot = document.getElementById('cam-status-dot');
-    const camStatusText = document.getElementById('cam-status-text');
-    const hudSensor = document.getElementById('hud-sensor');
-    const btnGyro = document.getElementById('btn-request-gyro');
-
-    function setCameraStatus(active) {
-      camOverlay.classList.toggle('hidden', active);
-      camStatusDot.className = `inline-block w-2 h-2 rounded-full ${active ? 'bg-emerald-400 animate-ping' : 'bg-rose-500'}`;
-      camStatusText.className = `${active ? 'text-emerald-400' : 'text-rose-400'} font-bold uppercase tracking-wider text-[11px]`;
-      camStatusText.innerText = active ? 'Cámara Activa' : 'Cámara Inactiva';
-    }
-
-    function showCameraError(msg) {
-      setCameraStatus(false);
-      camError.innerText = msg;
-    }
-
-    async function startCamera() {
-      if (!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        showCameraError('La cámara necesita HTTPS y un navegador compatible (Chrome o Safari). Abrí la app desde la URL https:// de Vercel, no desde una app de mensajería.');
-        return;
-      }
-      if (currentStream) {
-        currentStream.getTracks().forEach(t => t.stop());
-      }
-      try {
-        let stream;
-        try {
-          stream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: { ideal: state.cameraFacing }, width: { ideal: 1920 }, height: { ideal: 1080 } },
-            audio: false
-          });
-        } catch (err) {
-          // Algunos celulares rechazan la resolución pedida: reintento con lo básico
-          if (err.name !== 'OverconstrainedError') throw err;
-          stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-        }
-        currentStream = stream;
-        video.srcObject = stream;
-        await video.play().catch(() => {});
-        setCameraStatus(true);
-      } catch (err) {
-        console.warn("No se pudo iniciar la cámara:", err);
-        const messages = {
-          NotAllowedError: 'Permiso de cámara denegado. Habilitalo en la configuración del navegador (candado junto a la URL) y tocá de nuevo el botón.',
-          NotFoundError: 'No se encontró ninguna cámara en este dispositivo.',
-          NotReadableError: 'La cámara está en uso por otra app. Cerrala y volvé a intentar.'
-        };
-        showCameraError(messages[err.name] || `No se pudo iniciar la cámara (${err.name || err}).`);
-      }
-    }
-
-    // Rumbo hacia donde apunta la cámara trasera, válido con el celular en vertical
-    // (fórmula de referencia de la especificación W3C DeviceOrientation)
-    function cameraHeading(alpha, beta, gamma) {
-      const d2r = Math.PI / 180;
-      const x = (beta || 0) * d2r;
-      const y = (gamma || 0) * d2r;
-      const z = (alpha || 0) * d2r;
-      const vx = -Math.cos(z) * Math.sin(y) - Math.sin(z) * Math.sin(x) * Math.cos(y);
-      const vy = -Math.sin(z) * Math.sin(y) + Math.cos(z) * Math.sin(x) * Math.cos(y);
-      // Celular casi plano: la proyección es inestable, uso la dirección del borde superior
-      if (Math.hypot(vx, vy) < 0.2) return normalizeDeg(360 - alpha);
-      return normalizeDeg(Math.atan2(vx, vy) / d2r);
-    }
-
-    let gyroAttached = false;
-    let gotAbsolute = false;
-
-    function onOrientation(e) {
-      // Si el equipo entrega orientación absoluta (brújula), ignoro la relativa
-      if (e.type === 'deviceorientation' && gotAbsolute) return;
-
-      let heading = null;
-      if (typeof e.webkitCompassHeading === 'number' && !isNaN(e.webkitCompassHeading)) {
-        heading = e.webkitCompassHeading; // iOS Safari
-      } else if (e.alpha !== null && e.alpha !== undefined) {
-        heading = cameraHeading(e.alpha, e.beta, e.gamma); // Android Chrome
-      }
-      if (heading === null) return;
-
-      if (e.type === 'deviceorientationabsolute') gotAbsolute = true;
-      state.currentHeading = heading;
-      if (!state.sensorActive) {
-        state.sensorActive = true;
-        hudSensor.innerText = 'activo';
-        hudSensor.className = 'text-emerald-400 font-bold';
-      }
-      updateHeadingHud();
-    }
-
-    function attachGyroListener() {
-      if (gyroAttached) return;
-      gyroAttached = true;
-      window.addEventListener('deviceorientationabsolute', onOrientation, true);
-      window.addEventListener('deviceorientation', onOrientation, true);
-    }
-
-    // En iPhone el permiso de movimiento solo se puede pedir desde un toque del usuario
-    async function requestGyro() {
-      if (typeof DeviceOrientationEvent === 'undefined') return;
-      if (typeof DeviceOrientationEvent.requestPermission === 'function') {
-        try {
-          const resp = await DeviceOrientationEvent.requestPermission();
-          if (resp !== 'granted') return;
-        } catch (e) {
-          console.warn(e);
-          return;
-        }
-        btnGyro.classList.add('hidden');
-      }
-      attachGyroListener();
-    }
-
-    function initSensors() {
-      if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-        btnGyro.classList.remove('hidden');
-      } else {
-        attachGyroListener();
-      }
-    }
-
-    btnGyro.addEventListener('click', requestGyro);
-    document.getElementById('btn-start-camera').addEventListener('click', () => {
-      requestGyro();
-      startCamera();
-    });
-
-    // Rumbo final del próximo muro: sensor + giro manual, ajustado a escuadra si corresponde
-    function getWallHeading() {
-      const raw = normalizeDeg(state.currentHeading + state.headingOffset);
-      if (state.snap90 && state.baseHeading !== null) {
-        return normalizeDeg(state.baseHeading + Math.round((raw - state.baseHeading) / 90) * 90);
-      }
-      return raw;
-    }
-
-    function updateHeadingHud() {
-      hudHeading.innerText = `${Math.round(getWallHeading())}°`;
-    }
-
-    // -------------------------------------------------------------
-    // 2. CONTROLES Y MARCADO DE VÉRTICES AR
-    // -------------------------------------------------------------
-    document.getElementById('btn-dist-inc').addEventListener('click', () => {
-      state.currentDistance = parseFloat((state.currentDistance + 0.25).toFixed(2));
-      updateDistLabels();
-    });
-
-    document.getElementById('btn-dist-dec').addEventListener('click', () => {
-      if (state.currentDistance > 0.25) {
-        state.currentDistance = parseFloat((state.currentDistance - 0.25).toFixed(2));
-        updateDistLabels();
-      }
-    });
-
-    function updateDistLabels() {
-      const formatted = state.currentDistance.toFixed(2);
-      labelCurrDist.innerText = formatted;
-      hudSegmentDist.innerText = formatted;
-    }
-
-    // Giro manual: sirve como respaldo cuando el celular no tiene giroscopio/brújula
-    document.getElementById('btn-turn-left').addEventListener('click', () => {
-      state.headingOffset = normalizeDeg(state.headingOffset - 90);
-      updateHeadingHud();
-    });
-
-    document.getElementById('btn-turn-right').addEventListener('click', () => {
-      state.headingOffset = normalizeDeg(state.headingOffset + 90);
-      updateHeadingHud();
-    });
-
-    const btnSnap = document.getElementById('btn-snap-90');
-    btnSnap.addEventListener('click', () => {
-      state.snap90 = !state.snap90;
-      btnSnap.innerText = `Escuadra: ${state.snap90 ? 'SÍ' : 'NO'}`;
-      btnSnap.classList.toggle('text-emerald-400', state.snap90);
-      btnSnap.classList.toggle('text-slate-400', !state.snap90);
-      updateHeadingHud();
-    });
-
-    document.getElementById('btn-mark-corner').addEventListener('click', () => {
-      if (state.isClosed) return;
-
-      if (state.points.length === 0) {
-        state.points.push({ x: 0, y: 0 });
-        state.pointsLockedToPlan = false;
-      } else {
-        if (state.baseHeading === null) {
-          state.baseHeading = normalizeDeg(state.currentHeading + state.headingOffset);
-        }
-        const lastPt = state.points[state.points.length - 1];
-        const rad = (getWallHeading() * Math.PI) / 180;
-        const nextX = parseFloat((lastPt.x + Math.sin(rad) * state.currentDistance).toFixed(3));
-        const nextY = parseFloat((lastPt.y + Math.cos(rad) * state.currentDistance).toFixed(3));
-        state.points.push({ x: nextX, y: nextY });
-      }
-
-      refreshAll();
-    });
-
-    // Deshacer: reabre la planta o quita el último vértice (compartido por AR y editor 2D)
-    function undoLast() {
-      if (state.isClosed) {
-        state.isClosed = false;
-      } else {
-        state.points.pop();
-      }
-      if (state.points.length < 2) state.baseHeading = null;
-      if (state.points.length === 0) state.pointsLockedToPlan = false;
-      const wallCount = state.isClosed ? state.points.length : Math.max(state.points.length - 1, 0);
-      state.openings = state.openings.filter(o => o.wallIndex < wallCount);
-      refreshAll();
-      updateHeadingHud();
-    }
-    document.getElementById('btn-undo-ar').addEventListener('click', undoLast);
-    document.getElementById('btn-undo-cad').addEventListener('click', undoLast);
-
-    function closePolygon() {
-      if (state.points.length < 3) {
-        alert("Se necesitan al menos 3 vértices para cerrar el plano.");
-        return false;
-      }
-      state.isClosed = true;
-      refreshAll();
-      return true;
-    }
-
-    document.getElementById('btn-close-polygon').addEventListener('click', () => {
-      if (closePolygon()) switchTab('cad');
-    });
-    document.getElementById('btn-close-cad').addEventListener('click', closePolygon);
-
-    document.getElementById('btn-reset').addEventListener('click', () => {
-      if (confirm("¿Deseás borrar los vértices actuales?")) {
-        state.points = [];
-        state.openings = [];
-        state.isClosed = false;
-        state.baseHeading = null;
-        state.pointsLockedToPlan = false;
-        refreshAll();
-        updateHeadingHud();
-      }
-    });
-
-    document.getElementById('btn-switch-camera').addEventListener('click', () => {
-      state.cameraFacing = state.cameraFacing === 'environment' ? 'user' : 'environment';
-      startCamera();
-    });
-
-    // Menú Exportar: se abre con toque/clic y se cierra al elegir o tocar afuera
-    const exportMenu = document.getElementById('export-menu');
-    document.getElementById('btn-export-menu').addEventListener('click', (e) => {
-      e.stopPropagation();
-      exportMenu.classList.toggle('hidden');
-    });
-    document.addEventListener('click', () => exportMenu.classList.add('hidden'));
-
-    document.getElementById('btn-auto-vectorize').addEventListener('click', () => {
-      alert('La vectorización automática todavía no está disponible. Usá "Trazar Muro" y tocá cada esquina sobre la mensura.');
-    });
-
-    // -------------------------------------------------------------
-    // 3. IMPORTACIÓN DE PLANOS DE MENSURA (DXF, PDF, IMÁGENES)
-    // -------------------------------------------------------------
-
-    // Ubica la mensura en coordenadas reales, encuadrada en la vista actual
-    function setPlanImage(img) {
-      state.planImage = img;
-      state.planDxfData = null;
-      state.planCalibrated = false;
-      document.getElementById('plan-loaded-banner').classList.remove('hidden');
-      switchTab('cad');
-
-      const w = cadCanvas.width;
-      const h = cadCanvas.height;
-      state.plan.mPerPx = Math.min((w * 0.9) / img.width, (h * 0.9) / img.height) / state.pxPerMeter;
-      state.plan.x = -state.panOffset.x;
-      state.plan.y = -state.panOffset.y;
-      updateScaleLabel();
-      renderCAD();
-    }
-
-    document.getElementById('input-plan-file').addEventListener('change', async (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-      e.target.value = ''; // permite volver a elegir el mismo archivo
-
-      const fname = file.name.toLowerCase();
-
-      if (fname.endsWith('.dxf')) {
-        // Cargar archivo CAD DXF
-        const text = await file.text();
-        try {
-          const parser = new window.DxfParser();
-          state.planDxfData = parser.parseSync(text);
-          extractDxfEntities(state.planDxfData);
-          switchTab('cad');
-        } catch (err) {
-          alert("Error al leer el archivo DXF. Asegurate de que sea una versión DXF compatible.");
-          console.error(err);
-        }
-      } else if (fname.endsWith('.pdf')) {
-        // Cargar archivo PDF de Mensura
-        const buffer = await file.arrayBuffer();
-        try {
-          const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
-          const page = await pdf.getPage(1);
-          const viewport = page.getViewport({ scale: 2.0 });
-
-          const tempCanvas = document.createElement('canvas');
-          tempCanvas.width = viewport.width;
-          tempCanvas.height = viewport.height;
-          const tempCtx = tempCanvas.getContext('2d');
-
-          await page.render({ canvasContext: tempCtx, viewport: viewport }).promise;
-
-          const img = new Image();
-          img.onload = () => setPlanImage(img);
-          img.src = tempCanvas.toDataURL();
-        } catch (err) {
-          alert("Error al renderizar el archivo PDF.");
-          console.error(err);
-        }
-      } else if (file.type.startsWith('image/')) {
-        // Cargar Imagen (PNG, JPG)
-        const reader = new FileReader();
-        reader.onload = (event) => {
-          const img = new Image();
-          img.onload = () => setPlanImage(img);
-          img.src = event.target.result;
-        };
-        reader.readAsDataURL(file);
-      }
-    });
-
-    document.getElementById('btn-remove-plan-bg').addEventListener('click', () => {
-      state.planImage = null;
-      state.planDxfData = null;
-      document.getElementById('plan-loaded-banner').classList.add('hidden');
-      renderCAD();
-    });
-
-    // Extraer líneas de un plano CAD DXF
-    function extractDxfEntities(dxf) {
-      if (!dxf || !dxf.entities) return;
-      const newPoints = [];
-
-      dxf.entities.forEach(ent => {
-        if (ent.type === 'LINE' && ent.vertices) {
-          newPoints.push({ x: ent.vertices[0].x, y: ent.vertices[0].y });
-          newPoints.push({ x: ent.vertices[1].x, y: ent.vertices[1].y });
-        } else if (ent.type === 'LWPOLYLINE' && ent.vertices) {
-          ent.vertices.forEach(v => newPoints.push({ x: v.x, y: v.y }));
-        }
-      });
-
-      if (newPoints.length > 0) {
-        state.points = newPoints;
-        state.openings = [];
-        state.isClosed = true;
-        state.pointsLockedToPlan = false;
-        refreshAll();
-      }
-    }
-
-    // -------------------------------------------------------------
-    // 4. EDITOR Y CANVA 2D CAD
-    // -------------------------------------------------------------
-    function resizeCanvas() {
-      cadCanvas.width = cadCanvas.clientWidth * dpr;
-      cadCanvas.height = cadCanvas.clientHeight * dpr;
-      renderCAD();
-    }
-    window.addEventListener('resize', resizeCanvas);
-
-    // Selección de Herramientas CAD
-    const toolsBtns = {
-      'select': document.getElementById('tool-select'),
-      'draw-wall': document.getElementById('tool-draw-wall'),
-      'add-door': document.getElementById('tool-add-door'),
-      'add-window': document.getElementById('tool-add-window'),
-      'calibrate': document.getElementById('tool-calibrate')
-    };
-
-    Object.keys(toolsBtns).forEach(t => {
-      toolsBtns[t].addEventListener('click', () => {
-        state.currentTool = t;
-        state.calibrationStart = null;
-        Object.values(toolsBtns).forEach(b => {
-          b.classList.remove('bg-sky-600', 'text-white');
-          b.classList.add('hover:bg-slate-700', 'text-slate-300');
-        });
-        toolsBtns[t].classList.add('bg-sky-600', 'text-white');
-        toolsBtns[t].classList.remove('hover:bg-slate-700', 'text-slate-300');
-        renderCAD();
-      });
-    });
-
-    function worldToScreen(pt) {
-      const w = cadCanvas.width;
-      const h = cadCanvas.height;
-      return {
-        x: w / 2 + (pt.x + state.panOffset.x) * state.pxPerMeter,
-        y: h / 2 - (pt.y + state.panOffset.y) * state.pxPerMeter
-      };
-    }
-
-    function screenToWorld(pt) {
-      const w = cadCanvas.width;
-      const h = cadCanvas.height;
-      return {
-        x: (pt.x - w / 2) / state.pxPerMeter - state.panOffset.x,
-        y: -(pt.y - h / 2) / state.pxPerMeter - state.panOffset.y
-      };
-    }
-
-    function updateScaleLabel() {
-      const el = document.getElementById('val-px-per-m');
-      if (state.planImage && !state.planCalibrated) {
-        el.innerText = 'sin calibrar';
-      } else if (state.planImage) {
-        el.innerText = `1 px de mensura = ${(state.plan.mPerPx * 100).toFixed(2)} cm`;
-      } else {
-        el.innerText = 'metros reales';
-      }
-    }
-
-    // Encuadra en pantalla todo el dibujo y la mensura
-    function fitView() {
-      const w = cadCanvas.width;
-      const h = cadCanvas.height;
-      if (!w || !h) return;
-
-      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-      const add = (x, y) => {
-        minX = Math.min(minX, x); maxX = Math.max(maxX, x);
-        minY = Math.min(minY, y); maxY = Math.max(maxY, y);
-      };
-      state.points.forEach(p => add(p.x, p.y));
-      if (state.planImage) {
-        const hw = (state.planImage.width * state.plan.mPerPx) / 2;
-        const hh = (state.planImage.height * state.plan.mPerPx) / 2;
-        add(state.plan.x - hw, state.plan.y - hh);
-        add(state.plan.x + hw, state.plan.y + hh);
-      }
-      if (minX === Infinity) return;
-
-      const pad = 60 * dpr;
-      const spanX = maxX - minX;
-      const spanY = maxY - minY;
-      if (spanX > 1e-6 || spanY > 1e-6) {
-        state.pxPerMeter = Math.min((w - pad * 2) / Math.max(spanX, 1e-6), (h - pad * 2) / Math.max(spanY, 1e-6));
-      }
-      state.panOffset.x = -(minX + maxX) / 2;
-      state.panOffset.y = -(minY + maxY) / 2;
-      renderCAD();
-    }
-    document.getElementById('btn-fit-view').addEventListener('click', fitView);
-
-    // Calibración: reescala la mensura (y el dibujo trazado sobre ella) a metros reales.
-    // La vista se compensa para que en pantalla nada se mueva: solo cambian las medidas.
-    function applyCalibration(k) {
-      if (state.planImage) {
-        state.plan.mPerPx *= k;
-        state.plan.x *= k;
-        state.plan.y *= k;
-        state.planCalibrated = true;
-      }
-      if (state.pointsLockedToPlan || !state.planImage) {
-        state.points.forEach(p => { p.x *= k; p.y *= k; });
-      }
-      state.pxPerMeter /= k;
-      state.panOffset.x *= k;
-      state.panOffset.y *= k;
-      updateScaleLabel();
-      refreshAll();
-    }
-
-    // Muro más cercano a un punto (para ubicar puertas y ventanas)
-    function nearestWall(pt) {
-      const pts = state.points;
-      const limit = state.isClosed ? pts.length : pts.length - 1;
-      let best = null;
-      for (let i = 0; i < limit; i++) {
-        const a = pts[i];
-        const b = pts[(i + 1) % pts.length];
-        const dx = b.x - a.x;
-        const dy = b.y - a.y;
-        const len2 = dx * dx + dy * dy;
-        if (len2 === 0) continue;
-        const t = Math.max(0, Math.min(1, ((pt.x - a.x) * dx + (pt.y - a.y) * dy) / len2));
-        const dist = Math.hypot(pt.x - (a.x + dx * t), pt.y - (a.y + dy * t));
-        if (!best || dist < best.dist) best = { wallIndex: i, ratio: t, dist };
-      }
-      return best;
-    }
-
-    // Acción de un toque/clic según la herramienta activa
-    function handleTap(screenPt) {
-      const worldPt = screenToWorld(screenPt);
-
-      if (state.currentTool === 'draw-wall') {
-        if (state.isClosed) {
-          alert('La planta ya está cerrada. Usá "Deshacer" para reabrirla y seguir trazando.');
-          return;
-        }
-        // Tocar el primer vértice cierra la planta
-        if (state.points.length >= 3) {
-          const first = worldToScreen(state.points[0]);
-          if (Math.hypot(first.x - screenPt.x, first.y - screenPt.y) < 18 * dpr) {
-            state.isClosed = true;
-            refreshAll();
-            return;
-          }
-        }
-        if (state.points.length === 0) state.pointsLockedToPlan = !!state.planImage;
-        state.points.push(worldPt);
-        refreshAll();
-      } else if (state.currentTool === 'calibrate') {
-        if (!state.calibrationStart) {
-          state.calibrationStart = worldPt;
-          renderCAD();
-          return;
-        }
-        const currentMeters = Math.hypot(worldPt.x - state.calibrationStart.x, worldPt.y - state.calibrationStart.y);
-        state.calibrationStart = null;
-        if (currentMeters > 0) {
-          const input = prompt("Ingresá la distancia real en metros para esta cota:", "5.0");
-          const realMeters = input ? parseFloat(input.replace(',', '.')) : NaN;
-          if (!isNaN(realMeters) && realMeters > 0) {
-            applyCalibration(realMeters / currentMeters);
-            return;
-          }
-        }
-        renderCAD();
-      } else if (state.currentTool === 'add-door' || state.currentTool === 'add-window') {
-        // Agregar abertura al muro más cercano
-        const hit = state.points.length >= 2 ? nearestWall(worldPt) : null;
-        if (!hit) {
-          alert('Primero trazá al menos un muro.');
-          return;
-        }
-        state.openings.push({
-          type: state.currentTool === 'add-door' ? 'door' : 'window',
-          wallIndex: hit.wallIndex,
-          ratio: hit.ratio,
-          width: state.currentTool === 'add-door' ? 0.90 : 1.20
-        });
-        refreshAll();
-      }
-    }
-
-    // Gestos del canvas (mouse, dedo o lápiz):
-    // toque = acción de la herramienta · arrastrar = mover la vista · dos dedos / rueda = zoom
-    // En "Seleccionar", arrastrar un vértice lo mueve.
-    const pointers = new Map();
-    let gesture = null;
-    let hoverPt = null;
-    const TAP_SLOP = 8 * dpr;
-
-    function canvasPos(e) {
-      const rect = cadCanvas.getBoundingClientRect();
-      return { x: (e.clientX - rect.left) * dpr, y: (e.clientY - rect.top) * dpr };
-    }
-
-    function zoomAt(screenPt, newZoom) {
-      const anchor = screenToWorld(screenPt);
-      state.pxPerMeter = newZoom;
-      state.panOffset.x = (screenPt.x - cadCanvas.width / 2) / newZoom - anchor.x;
-      state.panOffset.y = -(screenPt.y - cadCanvas.height / 2) / newZoom - anchor.y;
-    }
-
-    cadCanvas.addEventListener('pointerdown', (e) => {
-      e.preventDefault();
-      cadCanvas.setPointerCapture(e.pointerId);
-      const pos = canvasPos(e);
-      pointers.set(e.pointerId, pos);
-
-      if (pointers.size === 2) {
-        const [a, b] = [...pointers.values()];
-        gesture = { type: 'pinch', startDist: Math.hypot(a.x - b.x, a.y - b.y) || 1, startZoom: state.pxPerMeter };
-        return;
-      }
-      if (pointers.size > 2) return;
-
-      let vertexIndex = -1;
-      if (state.currentTool === 'select') {
-        vertexIndex = state.points.findIndex(p => {
-          const sp = worldToScreen(p);
-          return Math.hypot(sp.x - pos.x, sp.y - pos.y) < 18 * dpr;
-        });
-      }
-      gesture = vertexIndex >= 0
-        ? { type: 'vertex', index: vertexIndex }
-        : { type: 'tap', start: pos, startPan: { ...state.panOffset } };
-    });
-
-    cadCanvas.addEventListener('pointermove', (e) => {
-      const pos = canvasPos(e);
-      hoverPt = pos;
-
-      if (!pointers.has(e.pointerId)) {
-        // Mouse sin botón apretado: solo actualiza la línea de vista previa
-        if (state.currentTool === 'draw-wall' || state.calibrationStart) renderCAD();
-        return;
-      }
-      pointers.set(e.pointerId, pos);
-      if (!gesture) return;
-
-      if (gesture.type === 'pinch' && pointers.size >= 2) {
-        const [a, b] = [...pointers.values()];
-        const dist = Math.hypot(a.x - b.x, a.y - b.y) || 1;
-        zoomAt({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, gesture.startZoom * (dist / gesture.startDist));
-        gesture.startDist = dist;
-        gesture.startZoom = state.pxPerMeter;
-      } else if (gesture.type === 'vertex') {
-        state.points[gesture.index] = screenToWorld(pos);
-        updateMetrics();
-      } else if (gesture.type === 'tap' || gesture.type === 'pan') {
-        const dx = pos.x - gesture.start.x;
-        const dy = pos.y - gesture.start.y;
-        if (gesture.type === 'tap' && Math.hypot(dx, dy) > TAP_SLOP) gesture.type = 'pan';
-        if (gesture.type === 'pan') {
-          state.panOffset.x = gesture.startPan.x + dx / state.pxPerMeter;
-          state.panOffset.y = gesture.startPan.y - dy / state.pxPerMeter;
-        }
-      }
-      renderCAD();
-    });
-
-    function endPointer(e) {
-      if (!pointers.has(e.pointerId)) return;
-      const pos = canvasPos(e);
-      pointers.delete(e.pointerId);
-
-      if (gesture && e.type === 'pointerup') {
-        if (gesture.type === 'tap') handleTap(pos);
-        else if (gesture.type === 'vertex') refreshAll();
-      }
-      // Tras un pellizco, espero a que se levanten todos los dedos
-      gesture = pointers.size > 0 ? { type: 'none' } : null;
-      if (e.pointerType !== 'mouse') hoverPt = null;
-      renderCAD();
-    }
-    cadCanvas.addEventListener('pointerup', endPointer);
-    cadCanvas.addEventListener('pointercancel', endPointer);
-    cadCanvas.addEventListener('pointerleave', () => { hoverPt = null; renderCAD(); });
-
-    cadCanvas.addEventListener('wheel', (e) => {
-      e.preventDefault();
-      zoomAt(canvasPos(e), state.pxPerMeter * (e.deltaY < 0 ? 1.15 : 1 / 1.15));
-      renderCAD();
-    }, { passive: false });
-
-    function renderCAD() {
-      const w = cadCanvas.width;
-      const h = cadCanvas.height;
-      const zoom = state.pxPerMeter;
-      cadCtx.clearRect(0, 0, w, h);
-
-      // Mensura de fondo: vive en coordenadas reales, así el dibujo queda siempre sobre ella
-      if (state.planImage) {
-        const imgW = state.planImage.width * state.plan.mPerPx;
-        const imgH = state.planImage.height * state.plan.mPerPx;
-        const topLeft = worldToScreen({ x: state.plan.x - imgW / 2, y: state.plan.y + imgH / 2 });
-        cadCtx.save();
-        cadCtx.globalAlpha = 0.6;
-        cadCtx.drawImage(state.planImage, topLeft.x, topLeft.y, imgW * zoom, imgH * zoom);
-        cadCtx.restore();
-      }
-
-      if (state.points.length === 0 && !state.planImage) {
-        cadCtx.fillStyle = '#64748b';
-        cadCtx.font = `${13 * dpr}px monospace`;
-        cadCtx.textAlign = 'center';
-        cadCtx.fillText("IMPORTÁ UN PLANO, MARCÁ VÉRTICES EN LA CÁMARA", w / 2, h / 2 - 10 * dpr);
-        cadCtx.fillText('O ELEGÍ "TRAZAR MURO" Y TOCÁ LA PANTALLA', w / 2, h / 2 + 10 * dpr);
-        return;
-      }
-
-      // Relleno de ambiente
-      if (state.isClosed && state.points.length >= 3) {
-        cadCtx.beginPath();
-        const start = worldToScreen(state.points[0]);
-        cadCtx.moveTo(start.x, start.y);
-        for (let i = 1; i < state.points.length; i++) {
-          const p = worldToScreen(state.points[i]);
-          cadCtx.lineTo(p.x, p.y);
-        }
-        cadCtx.closePath();
-        cadCtx.fillStyle = 'rgba(56, 189, 248, 0.12)';
-        cadCtx.fill();
-      }
-
-      // Trazado de Muros 2D
-      if (state.points.length >= 2) {
-        cadCtx.beginPath();
-        cadCtx.lineWidth = 4 * dpr;
-        cadCtx.strokeStyle = '#38bdf8';
-        cadCtx.lineCap = 'round';
-        cadCtx.lineJoin = 'round';
-
-        const startPt = worldToScreen(state.points[0]);
-        cadCtx.moveTo(startPt.x, startPt.y);
-
-        for (let i = 1; i < state.points.length; i++) {
-          const pt = worldToScreen(state.points[i]);
-          cadCtx.lineTo(pt.x, pt.y);
-        }
-
-        if (state.isClosed) cadCtx.closePath();
-        cadCtx.stroke();
-      }
-
-      // Aberturas (puertas en ámbar, ventanas en violeta)
-      const wallLimit = state.isClosed ? state.points.length : state.points.length - 1;
-      state.openings.forEach(o => {
-        if (o.wallIndex >= wallLimit) return;
-        const a = state.points[o.wallIndex];
-        const b = state.points[(o.wallIndex + 1) % state.points.length];
-        const len = Math.hypot(b.x - a.x, b.y - a.y);
-        if (len === 0) return;
-        const half = Math.min(o.width, len) / 2 / len;
-        const t1 = Math.max(0, o.ratio - half);
-        const t2 = Math.min(1, o.ratio + half);
-        const s1 = worldToScreen({ x: a.x + (b.x - a.x) * t1, y: a.y + (b.y - a.y) * t1 });
-        const s2 = worldToScreen({ x: a.x + (b.x - a.x) * t2, y: a.y + (b.y - a.y) * t2 });
-        cadCtx.beginPath();
-        cadCtx.moveTo(s1.x, s1.y);
-        cadCtx.lineTo(s2.x, s2.y);
-        cadCtx.lineWidth = 8 * dpr;
-        cadCtx.lineCap = 'butt';
-        cadCtx.strokeStyle = o.type === 'door' ? '#f59e0b' : '#a78bfa';
-        cadCtx.stroke();
-      });
-
-      // Vista previa del próximo muro (mouse)
-      if (state.currentTool === 'draw-wall' && hoverPt && !state.isClosed && state.points.length > 0) {
-        const last = worldToScreen(state.points[state.points.length - 1]);
-        cadCtx.beginPath();
-        cadCtx.setLineDash([6 * dpr, 6 * dpr]);
-        cadCtx.moveTo(last.x, last.y);
-        cadCtx.lineTo(hoverPt.x, hoverPt.y);
-        cadCtx.lineWidth = 2 * dpr;
-        cadCtx.strokeStyle = 'rgba(56, 189, 248, 0.7)';
-        cadCtx.stroke();
-        cadCtx.setLineDash([]);
-      }
-
-      // Renderizar Cotas Métricas
-      for (let i = 0; i < wallLimit; i++) {
-        const p1 = state.points[i];
-        const p2 = state.points[(i + 1) % state.points.length];
-        const sp1 = worldToScreen(p1);
-        const sp2 = worldToScreen(p2);
-
-        const dist = Math.hypot(p2.x - p1.x, p2.y - p1.y).toFixed(2);
-        const midX = (sp1.x + sp2.x) / 2;
-        const midY = (sp1.y + sp2.y) / 2;
-
-        cadCtx.fillStyle = '#0f172a';
-        cadCtx.strokeStyle = '#38bdf8';
-        cadCtx.lineWidth = 1;
-        const text = `${dist}m`;
-        cadCtx.font = `${11 * dpr}px monospace`;
-        cadCtx.textAlign = 'center';
-        cadCtx.textBaseline = 'middle';
-
-        const textWidth = cadCtx.measureText(text).width + 12 * dpr;
-        const boxH = 18 * dpr;
-        cadCtx.fillRect(midX - textWidth / 2, midY - boxH / 2, textWidth, boxH);
-        cadCtx.strokeRect(midX - textWidth / 2, midY - boxH / 2, textWidth, boxH);
-        cadCtx.fillStyle = '#38bdf8';
-        cadCtx.fillText(text, midX, midY);
-      }
-
-      // Dibujar Vértices
-      state.points.forEach((pt) => {
-        const sp = worldToScreen(pt);
-        cadCtx.beginPath();
-        cadCtx.arc(sp.x, sp.y, 6 * dpr, 0, Math.PI * 2);
-        cadCtx.fillStyle = '#10b981';
-        cadCtx.fill();
-        cadCtx.lineWidth = 2 * dpr;
-        cadCtx.strokeStyle = '#ffffff';
-        cadCtx.stroke();
-      });
-
-      // Línea de calibración en curso
-      if (state.calibrationStart) {
-        const cs = worldToScreen(state.calibrationStart);
-        cadCtx.strokeStyle = '#fbbf24';
-        cadCtx.fillStyle = '#fbbf24';
-        cadCtx.lineWidth = 2 * dpr;
-        if (hoverPt) {
-          cadCtx.beginPath();
-          cadCtx.setLineDash([6 * dpr, 6 * dpr]);
-          cadCtx.moveTo(cs.x, cs.y);
-          cadCtx.lineTo(hoverPt.x, hoverPt.y);
-          cadCtx.stroke();
-          cadCtx.setLineDash([]);
-        }
-        cadCtx.beginPath();
-        cadCtx.arc(cs.x, cs.y, 5 * dpr, 0, Math.PI * 2);
-        cadCtx.fill();
-      }
-    }
-
-    // -------------------------------------------------------------
-    // 5. CÁLCULOS ARQUITECTÓNICOS (ÁREA Y PERÍMETRO)
-    // -------------------------------------------------------------
-    function calculateArea(pts) {
-      if (pts.length < 3) return 0;
-      let area = 0;
-      for (let i = 0; i < pts.length; i++) {
-        const j = (i + 1) % pts.length;
-        area += pts[i].x * pts[j].y;
-        area -= pts[j].x * pts[i].y;
-      }
-      return Math.abs(area) / 2;
-    }
-
-    function updateMetrics() {
-      const area = calculateArea(state.points);
-      metricAreaTop.innerText = `${area.toFixed(2)} m²`;
-      metricPointsCount.innerText = `${state.points.length} pts`;
-      hudPts.innerText = state.points.length;
-    }
-
-    // -------------------------------------------------------------
-    // 6. MOTOR 3D Y EXTRUSIÓN ARQUITECTÓNICA (THREE.JS)
-    // -------------------------------------------------------------
-    let scene, camera, renderer, controls, architecturalGroup;
-
-    function init3D() {
-      scene = new THREE.Scene();
-      scene.background = new THREE.Color(0x090d16);
-
-      const grid = new THREE.GridHelper(30, 30, 0x38bdf8, 0x1e293b);
-      grid.position.y = -0.01;
-      scene.add(grid);
-
-      camera = new THREE.PerspectiveCamera(60, threeContainer.clientWidth / threeContainer.clientHeight, 0.1, 1000);
-      camera.position.set(0, 8, 10);
-
-      renderer = new THREE.WebGLRenderer({ antialias: true });
-      renderer.setSize(threeContainer.clientWidth, threeContainer.clientHeight);
-      renderer.setPixelRatio(window.devicePixelRatio);
-      renderer.shadowMap.enabled = true;
-      threeContainer.appendChild(renderer.domElement);
-
-      controls = new THREE.OrbitControls(camera, renderer.domElement);
-      controls.enableDamping = true;
-      controls.dampingFactor = 0.05;
-
-      const ambLight = new THREE.AmbientLight(0xffffff, 0.7);
-      scene.add(ambLight);
-
-      const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
-      dirLight.position.set(10, 20, 10);
-      dirLight.castShadow = true;
-      scene.add(dirLight);
-
-      animate3D();
-    }
-
-    function animate3D() {
-      requestAnimationFrame(animate3D);
-      if (controls) controls.update();
-      if (renderer && scene && camera) renderer.render(scene, camera);
-    }
-
-    // Constructor de Muros 3D Sólidos
-    function rebuild3DScene() {
-      if (!scene) return;
-      if (architecturalGroup) scene.remove(architecturalGroup);
-
-      architecturalGroup = new THREE.Group();
-      scene.add(architecturalGroup);
-
-      if (state.points.length < 2) return;
-
-      const pts = state.points;
-      const height = parseFloat(document.getElementById('input-wall-height').value) || state.wallHeight;
-      const thickness = parseFloat(document.getElementById('input-wall-thickness').value) || state.wallThickness;
-      const limit = state.isClosed ? pts.length : pts.length - 1;
-
-      // Materiales 3D Arquitectónicos
-      const wallMaterial = new THREE.MeshStandardMaterial({
-        color: 0x38bdf8,
-        roughness: 0.4,
-        metalness: 0.1,
-        wireframe: state.renderMode === 'wireframe'
-      });
-
-      const floorMaterial = new THREE.MeshStandardMaterial({
-        color: 0x1e293b,
-        roughness: 0.8
-      });
-
-      // Crear cada Muro como una Geometría 3D Extruida
-      for (let i = 0; i < limit; i++) {
-        const p1 = pts[i];
-        const p2 = pts[(i + 1) % pts.length];
-
-        const dx = p2.x - p1.x;
-        const dz = -(p2.y - p1.y); // Mapeo a coordenada Z en Three.js
-        const length = Math.sqrt(dx * dx + dz * dz);
-        const angle = Math.atan2(dz, dx);
-
-        const wallGeo = new THREE.BoxGeometry(length, height, thickness);
-        const wallMesh = new THREE.Mesh(wallGeo, wallMaterial);
-
-        // Posicionar en el centro del segmento y elevar a la mitad de la altura
-        wallMesh.position.set((p1.x + p2.x) / 2, height / 2, -((p1.y + p2.y) / 2));
-        wallMesh.rotation.y = -angle;
-        wallMesh.castShadow = true;
-        wallMesh.receiveShadow = true;
-
-        architecturalGroup.add(wallMesh);
-      }
-
-      // Suelo Sólido si la planta está cerrada
-      if (state.isClosed && pts.length >= 3) {
-        const shape = new THREE.Shape();
-        shape.moveTo(pts[0].x, -pts[0].y);
-        for (let i = 1; i < pts.length; i++) {
-          shape.lineTo(pts[i].x, -pts[i].y);
-        }
-        shape.closePath();
-
-        const floorGeo = new THREE.ShapeGeometry(shape);
-        const floorMesh = new THREE.Mesh(floorGeo, floorMaterial);
-        floorMesh.rotation.x = -Math.PI / 2;
-        floorMesh.position.y = 0;
-        architecturalGroup.add(floorMesh);
-      }
-
-      document.getElementById('hud-3d-walls').innerText = limit;
-      document.getElementById('hud-3d-openings').innerText = state.openings.length;
-    }
-
-    document.getElementById('input-wall-height').addEventListener('change', rebuild3DScene);
-    document.getElementById('input-wall-thickness').addEventListener('change', rebuild3DScene);
-    document.getElementById('select-render-mode').addEventListener('change', (e) => {
-      state.renderMode = e.target.value;
-      rebuild3DScene();
-    });
-
-    // -------------------------------------------------------------
-    // 7. SISTEMA MULTI-FORMATO DE EXPORTACIÓN (CAD & 3D)
-    // -------------------------------------------------------------
-    
-    // Exportar Plano CAD .DXF 2D
-    document.getElementById('btn-export-dxf').addEventListener('click', () => {
-      if (state.points.length < 2) { alert("Marcá al menos un muro para exportar."); return; }
-
-      let dxf = "0\nSECTION\n2\nHEADER\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n";
-      const limit = state.isClosed ? state.points.length : state.points.length - 1;
-
-      for (let i = 0; i < limit; i++) {
-        const p1 = state.points[i];
-        const p2 = state.points[(i + 1) % state.points.length];
-
-        dxf += "0\nLINE\n8\nMUROS\n";
-        dxf += `10\n${p1.x}\n20\n${p1.y}\n30\n0.0\n`;
-        dxf += `11\n${p2.x}\n21\n${p2.y}\n31\n0.0\n`;
-      }
-
-      dxf += "0\nENDSEC\n0\nEOF\n";
-      downloadFile(dxf, `plano-cad-${Date.now()}.dxf`, "application/dxf");
-    });
-
-    // Exportar Modelo 3D .OBJ
-    document.getElementById('btn-export-obj').addEventListener('click', () => {
-      if (!architecturalGroup) { alert("Generá el diseño 3D primero."); return; }
-      const exporter = new THREE.OBJExporter();
-      const result = exporter.parse(architecturalGroup);
-      downloadFile(result, `modelo-arquitectura-${Date.now()}.obj`, "text/plain");
-    });
-
-    // Exportar Modelo 3D .GLB / GLTF
-    document.getElementById('btn-export-glb').addEventListener('click', () => {
-      if (!architecturalGroup) { alert("Generá el diseño 3D primero."); return; }
-      const exporter = new THREE.GLTFExporter();
-      exporter.parse(architecturalGroup, (gltf) => {
-        const output = JSON.stringify(gltf, null, 2);
-        downloadFile(output, `modelo-arquitectura-${Date.now()}.gltf`, "application/json");
-      });
-    });
-
-    // Exportar Nube de Puntos PLY
-    document.getElementById('btn-export-ply').addEventListener('click', () => {
-      if (state.points.length < 2) { alert("Generá muros para exportar."); return; }
-      let ply = "ply\nformat ascii 1.0\ncomment ScanArch Studio\n";
-      const pts = state.points;
-      ply += `element vertex ${pts.length * 10}\nproperty float x\nproperty float y\nproperty float z\nend_header\n`;
-      
-      pts.forEach(p => {
-        for (let h = 0; h < 10; h++) {
-          ply += `${p.x} ${(h/10)*state.wallHeight} ${-p.y}\n`;
-        }
-      });
-      downloadFile(ply, `nube-puntos-${Date.now()}.ply`, "text/plain");
-    });
-
-    // Exportar Imagen del Plano PNG
-    document.getElementById('btn-export-png').addEventListener('click', () => {
-      const dataUrl = cadCanvas.toDataURL("image/png");
-      const a = document.createElement("a");
-      a.href = dataUrl;
-      a.download = `plano-2d-${Date.now()}.png`;
-      a.click();
-    });
-
-    function downloadFile(content, filename, mimeType) {
-      const blob = new Blob([content], { type: mimeType });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    }
-
-    // -------------------------------------------------------------
-    // 8. GESTIÓN DE TABS / VISTAS
-    // -------------------------------------------------------------
-    function switchTab(tabId) {
-      state.activeTab = tabId;
-
-      [tabCam, tabCad, tab3D].forEach(b => {
-        b.classList.remove('text-emerald-400');
-        b.classList.add('text-slate-400');
-      });
-
-      viewCamera.classList.add('hidden');
-      viewCad.classList.add('hidden');
-      view3D.classList.add('hidden');
-
-      if (tabId === 'cam') {
-        tabCam.classList.add('text-emerald-400');
-        tabCam.classList.remove('text-slate-400');
-        viewCamera.classList.remove('hidden');
-      } else if (tabId === 'cad') {
-        tabCad.classList.add('text-emerald-400');
-        tabCad.classList.remove('text-slate-400');
-        viewCad.classList.remove('hidden');
-        resizeCanvas();
-        if (!state.planImage && state.points.length > 0) fitView();
-      } else if (tabId === '3d') {
-        tab3D.classList.add('text-emerald-400');
-        tab3D.classList.remove('text-slate-400');
-        view3D.classList.remove('hidden');
-        if (renderer) {
-          renderer.setSize(threeContainer.clientWidth, threeContainer.clientHeight);
-          camera.aspect = threeContainer.clientWidth / threeContainer.clientHeight;
-          camera.updateProjectionMatrix();
-        }
-        rebuild3DScene();
-      }
-    }
-
-    tabCam.addEventListener('click', () => switchTab('cam'));
-    tabCad.addEventListener('click', () => switchTab('cad'));
-    tab3D.addEventListener('click', () => switchTab('3d'));
-
-    // INICIALIZACIÓN DE INICIO
-    window.addEventListener('DOMContentLoaded', () => {
-      startCamera();
-      initSensors();
-      init3D();
-      resizeCanvas();
-      updateDistLabels();
-    });
-  </script>
+  <!-- Aplicación: modelo único + vistas que lo interpretan -->
+  <script src="js/model.js"></script>
+  <script src="js/library.js"></script>
+  <script src="js/editor2d.js"></script>
+  <script src="js/view3d.js"></script>
+  <script src="js/capture.js"></script>
+  <script src="js/exporters.js"></script>
+  <script src="js/app.js"></script>
 </body>
 </html>
