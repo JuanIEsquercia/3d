@@ -5,15 +5,23 @@
   const M = SA.model;
   const LIB = SA.library;
 
-  const COLORS = { wall: '#1e293b', selected: '#0ea5e9', line: '#334155', dim: '#0369a1', guide: '#f59e0b' };
+  const COLORS = { wall: '#1e293b', selected: '#0ea5e9', line: '#334155', dim: '#0369a1', guide: '#f59e0b', lot: '#dc2626', street: '#64748b' };
+  const TOUCH = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
   const HINTS = {
-    select: 'Tocá un muro, abertura, objeto o ambiente para editarlo. Arrastrá las esquinas para moverlas.',
-    wall: 'Tocá cada esquina del muro. Se engancha a esquinas y muros existentes (también para paredes internas).',
-    door: 'Tocá sobre un muro para colocar una puerta.',
-    window: 'Tocá sobre un muro para colocar una ventana.',
+    select: 'Tocá un elemento para editarlo. Arrastrá esquinas, muros, aberturas y objetos para moverlos.',
+    wall: TOUCH
+      ? 'Arrastrá el dedo para trazar un muro, o tocá esquina por esquina. Dos dedos: mover y zoom.'
+      : 'Hacé clic en cada esquina del muro. Se engancha a esquinas y muros existentes (también para paredes internas).',
+    room: 'Arrastrá en diagonal para dibujar un ambiente rectangular. Se engancha a lo ya dibujado.',
+    door: 'Tocá sobre un muro para colocar una puerta. Después podés arrastrarla o cambiarle el ancho.',
+    window: 'Tocá sobre un muro para colocar una ventana. Después podés arrastrarla o cambiarle el ancho.',
     object: 'Tocá el plano para colocar el objeto elegido.',
-    calibrate: 'Tocá los dos extremos de una cota conocida de la mensura.'
+    calibrate: 'Tocá los dos extremos de una cota conocida de la mensura.',
+    lote: 'Tocá cada vértice del lote sobre la mensura. Tocá el primero para cerrarlo.',
+    calle: 'Tocá los puntos del eje de la calle. Tocá dos veces el último punto (o "Terminar") para cerrarla.',
+    detect: 'Arrastrá un rectángulo sobre la planta de la mensura para detectar sus muros (o tocá para analizar toda la imagen).'
   };
+  const DRAG_TOOLS = ['room', 'detect']; // herramientas donde arrastrar dibuja en vez de mover la vista
 
   const E = {};
   let stage, container, panelEl, hintEl, finishBtn;
@@ -26,6 +34,9 @@
   let hover = null;          // punto bajo el mouse (con enganche)
   let pinchedAt = 0;
   let renderQueued = false;
+  let gesture = null;        // trazo en curso al arrastrar: {kind, start, cur, moved, screen}
+  let draft = null;          // lote o calle en curso: {kind, points}
+  let planNode = null, gridNode = null; // fondo, para ajustarlo al exportar
 
   const zoom = () => stage.scaleX();
   const px = (n) => n / zoom(); // tamaño constante en pantalla, expresado en metros
@@ -58,12 +69,17 @@
     });
 
     stage.on('mousemove', () => {
-      if (tool !== 'wall' && tool !== 'calibrate') return;
+      if (!['wall', 'calibrate', 'lote', 'calle'].includes(tool)) return;
       const pos = stage.getRelativePointerPosition();
-      hover = snap(pos, null, chainLast ? M.node(chainLast) : null);
+      hover = snap(pos, null, draft && draft.points.length ? draft.points[draft.points.length - 1] : chainLast ? M.node(chainLast) : null);
       renderUi();
     });
     stage.on('mouseleave', () => { hover = null; renderUi(); });
+
+    // Dibujar arrastrando: muros con el dedo y ambientes rectangulares
+    stage.on('mousedown touchstart', gestureStart);
+    stage.on('mousemove touchmove', gestureMove);
+    stage.on('mouseup touchend touchcancel', gestureEnd);
 
     // Zoom con rueda, centrado en el cursor
     stage.on('wheel', (e) => {
@@ -104,7 +120,16 @@
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? M.redo() : M.undo(); }
     });
 
+    let shownLevelId = null;
     M.on(() => {
+      // Al cambiar de piso no se arrastra nada del piso anterior
+      if (M.level.id !== shownLevelId) {
+        shownLevelId = M.level.id;
+        selection = null;
+        lastDetection = null;
+        chainLast = null;
+        calibStart = null;
+      }
       if (chainLast && !M.node(chainLast)) chainLast = null;
       if (selection && !selectionExists()) selection = null;
       render();
@@ -134,17 +159,51 @@
   };
 
   // ---------- enganche (snapping) ----------
-  function snap(pos, excludeNodeId, fromPoint) {
+  function snap(pos, excludeNodeId, fromPoint, excludePoint) {
     const r = px(14);
+    // Vértices de lotes y calles (para que lotes vecinos compartan sus esquinas)
+    let vertex = null, vertexD = r;
+    (M.level.shapes || []).forEach(sh => sh.points.forEach(p => {
+      if (p === excludePoint) return;
+      const d = Math.hypot(p.x - pos.x, p.y - pos.y);
+      if (d <= vertexD) { vertexD = d; vertex = p; }
+    }));
+    if (vertex) return { x: vertex.x, y: vertex.y, kind: 'node' };
     const nid = M.nodeAt(pos, r, excludeNodeId);
     if (nid) return { x: M.node(nid).x, y: M.node(nid).y, kind: 'node', id: nid };
     const near = M.wallNear(pos, r, excludeNodeId);
-    if (near) return { x: near.point.x, y: near.point.y, kind: 'wall' };
+    if (near) {
+      // Si el trazo viene casi en escuadra, cae sobre el muro manteniendo la horizontal/vertical
+      if (fromPoint) {
+        const a = M.node(near.wall.a), b = M.node(near.wall.b);
+        const candidates = [];
+        if (Math.abs(b.x - a.x) > 1e-9) {
+          const t = (fromPoint.x - a.x) / (b.x - a.x);
+          if (t >= 0 && t <= 1) candidates.push({ x: fromPoint.x, y: a.y + (b.y - a.y) * t });
+        }
+        if (Math.abs(b.y - a.y) > 1e-9) {
+          const t = (fromPoint.y - a.y) / (b.y - a.y);
+          if (t >= 0 && t <= 1) candidates.push({ x: a.x + (b.x - a.x) * t, y: fromPoint.y });
+        }
+        const best = candidates
+          .map(c => ({ c, d: Math.hypot(c.x - pos.x, c.y - pos.y) }))
+          .filter(o => o.d <= r)
+          .sort((p1, p2) => p1.d - p2.d)[0];
+        if (best) return { x: best.c.x, y: best.c.y, kind: 'wall' };
+      }
+      return { x: near.point.x, y: near.point.y, kind: 'wall' };
+    }
 
     const p = { x: pos.x, y: pos.y, kind: 'free' };
+    // Escuadra: un trazo casi horizontal o vertical se endereza solo
+    if (fromPoint) {
+      const dx = Math.abs(pos.x - fromPoint.x), dy = Math.abs(pos.y - fromPoint.y);
+      if (dy <= dx * 0.07) { p.y = fromPoint.y; p.kind = 'axis'; }
+      else if (dx <= dy * 0.07) { p.x = fromPoint.x; p.kind = 'axis'; }
+    }
     // Alineación horizontal/vertical con el punto anterior y con otras esquinas
     const refs = fromPoint ? [fromPoint] : [];
-    for (const id in M.project.nodes) if (id !== excludeNodeId) refs.push(M.project.nodes[id]);
+    for (const id in M.level.nodes) if (id !== excludeNodeId) refs.push(M.level.nodes[id]);
     let bestX = r, bestY = r;
     refs.forEach(n => {
       if (Math.abs(pos.x - n.x) < bestX) { bestX = Math.abs(pos.x - n.x); p.x = n.x; p.kind = 'axis'; }
@@ -156,7 +215,7 @@
   // ---------- acciones por toque ----------
   function handleTap(pos, target) {
     if (!pos) return;
-    const P = M.project;
+    const P = M.level;
 
     if (tool === 'select') {
       if (!target || target === stage) select(null);
@@ -171,11 +230,33 @@
         render();
         return;
       }
-      const res = M.addWall(chainLast, s, eps);
-      if (res.endId === chainLast) return;
-      // Llegar a una esquina o muro existente termina el tramo
-      chainLast = res.endExisted ? null : res.endId;
-      M.commit();
+      finishWall(chainLast, s, eps);
+      return;
+    }
+
+    if (tool === 'room') {
+      flashHint('Arrastrá en diagonal para dibujar el ambiente.');
+      return;
+    }
+
+    if (tool === 'detect') {
+      runDetection(null, false);
+      return;
+    }
+
+    if (tool === 'lote' || tool === 'calle') {
+      const last = draft && draft.points.length ? draft.points[draft.points.length - 1] : null;
+      const s = snap(pos, null, last);
+      if (!draft) draft = { kind: tool, points: [] };
+      const pts = draft.points;
+      const screenDist = (p) => Math.hypot(s.x - p.x, s.y - p.y) * zoom();
+      // Tocar el primer vértice cierra el lote; tocar de nuevo el último termina
+      if ((tool === 'lote' && pts.length >= 3 && screenDist(pts[0]) < 18) || (last && screenDist(last) < 8)) {
+        finishDraft();
+        return;
+      }
+      pts.push({ x: s.x, y: s.y });
+      render();
       return;
     }
 
@@ -195,9 +276,10 @@
       const def = LIB.objectType(pendingObject);
       if (!def) return;
       const o = { id: M.newId('f'), type: def.type, x: pos.x, y: pos.y, rotation: 0, w: def.w, d: def.d, h: def.h };
+      anchorToWall(o);
       P.objects.push(o);
-      selection = { kind: 'object', id: o.id };
       E.setTool('select');
+      selection = { kind: 'object', id: o.id };
       M.commit();
       return;
     }
@@ -217,12 +299,221 @@
   }
   E._tap = handleTap; // punto de entrada para pruebas automáticas
 
+  // ---------- lotes y calles ----------
+  const polyArea = (pts) => Math.abs(pts.reduce((sum, p, i) => {
+    const q = pts[(i + 1) % pts.length];
+    return sum + p.x * q.y - q.x * p.y;
+  }, 0)) / 2;
+
+  function finishDraft() {
+    const d = draft;
+    draft = null;
+    if (!d) return;
+    if (d.points.length < (d.kind === 'lote' ? 3 : 2)) { render(); return; }
+    const L = M.level;
+    const count = L.shapes.filter(s => s.kind === d.kind).length + 1;
+    const shape = {
+      id: M.newId('s'), kind: d.kind, points: d.points,
+      name: d.kind === 'lote' ? `Lote ${count}` : `Calle ${count}`
+    };
+    if (d.kind === 'calle') shape.width = M.isMetric() ? 12 : px(40);
+    L.shapes.push(shape);
+    selection = { kind: 'shape', id: shape.id };
+    M.commit();
+  }
+
+  // Texto legible sobre cualquier fondo (borde blanco alrededor de las letras)
+  function haloText(attrs) {
+    const t = new Konva.Text(Object.assign({ stroke: '#ffffff', strokeWidth: px(3), fillAfterStrokeEnabled: true, listening: false }, attrs));
+    t.offsetX(t.width() / 2);
+    t.offsetY(t.height() / 2);
+    return t;
+  }
+
+  const uprightDeg = (dx, dy) => {
+    let ang = Math.atan2(dy, dx);
+    if (ang > Math.PI / 2 || ang <= -Math.PI / 2) ang += Math.PI;
+    return (ang * 180) / Math.PI;
+  };
+
+  function renderShapes(L, metric) {
+    M.level.shapes.forEach(sh => {
+      const isSel = selection && selection.kind === 'shape' && selection.id === sh.id;
+      const pts = sh.points;
+      const flat = pts.flatMap(p => [p.x, p.y]);
+      let node;
+      if (sh.kind === 'calle') {
+        node = new Konva.Line({
+          points: flat, stroke: isSel ? COLORS.selected : COLORS.street, opacity: 0.45, strokeWidth: sh.width,
+          lineCap: 'butt', lineJoin: 'round', hitStrokeWidth: Math.max(sh.width, px(20))
+        });
+        L.add(node);
+        // Nombre sobre el tramo más largo
+        let best = 0;
+        for (let i = 1; i < pts.length - 1; i++) {
+          if (Math.hypot(pts[i + 1].x - pts[i].x, pts[i + 1].y - pts[i].y) > Math.hypot(pts[best + 1].x - pts[best].x, pts[best + 1].y - pts[best].y)) best = i;
+        }
+        const a = pts[best], b = pts[best + 1];
+        L.add(haloText({
+          x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, rotation: uprightDeg(b.x - a.x, b.y - a.y),
+          text: sh.name, fontSize: px(15), fontStyle: 'bold', fill: '#1e293b'
+        }));
+      } else {
+        node = new Konva.Line({
+          points: flat, closed: true, stroke: isSel ? COLORS.selected : COLORS.lot, strokeWidth: px(3),
+          fill: 'rgba(220, 38, 38, 0.07)', hitStrokeWidth: px(16)
+        });
+        L.add(node);
+        // Medida de cada lado, por fuera del lote
+        if (metric) {
+          pts.forEach((a, i) => {
+            const b = pts[(i + 1) % pts.length];
+            const len = Math.hypot(b.x - a.x, b.y - a.y);
+            if (len * zoom() < 40) return;
+            const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+            let nx = -(b.y - a.y) / len, ny = (b.x - a.x) / len;
+            if (M.pointInPoly({ x: mid.x + nx * px(4), y: mid.y + ny * px(4) }, pts)) { nx = -nx; ny = -ny; }
+            L.add(haloText({
+              x: mid.x + nx * px(12), y: mid.y + ny * px(12), rotation: uprightDeg(b.x - a.x, b.y - a.y),
+              text: `${fmt(len)} m`, fontSize: px(12), fontStyle: 'bold', fill: '#b91c1c'
+            }));
+          });
+        }
+        const c = pts.reduce((acc, p) => ({ x: acc.x + p.x / pts.length, y: acc.y + p.y / pts.length }), { x: 0, y: 0 });
+        L.add(haloText({
+          x: c.x, y: c.y, align: 'center', lineHeight: 1.3,
+          text: metric ? `${sh.name}\n${fmt(polyArea(pts))} m²` : sh.name,
+          fontSize: px(14), fontStyle: 'bold', fill: '#991b1b'
+        }));
+      }
+      node.on('click tap', (e) => {
+        if (tool !== 'select') return;
+        e.cancelBubble = true;
+        select({ kind: 'shape', id: sh.id });
+      });
+    });
+  }
+
+  // Cierra un tramo de muro y deja el muro nuevo seleccionado para poder ajustar su largo
+  function finishWall(fromId, pt, eps) {
+    const res = M.addWall(fromId, pt, eps);
+    if (res.endId === fromId) { E.endChain(); return; } // tocar de nuevo el último punto termina el muro
+    // Llegar a una esquina o muro existente termina el tramo
+    chainLast = res.endExisted ? null : res.endId;
+    selection = res.created ? { kind: 'wall', id: M.level.walls[M.level.walls.length - 1].id } : null;
+    M.commit();
+  }
+
+  function addRectangle(p, q, eps) {
+    if (Math.abs(q.x - p.x) < px(12) || Math.abs(q.y - p.y) < px(12)) return;
+    const corners = [{ x: p.x, y: p.y }, { x: q.x, y: p.y }, { x: q.x, y: q.y }, { x: p.x, y: q.y }];
+    corners.forEach((c, i) => M.addWall(c, corners[(i + 1) % 4], eps));
+    M.commit();
+  }
+
+  // Apoya el objeto contra el muro cercano y lo orienta con el fondo hacia la pared
+  function anchorToWall(o) {
+    const def = LIB.objectType(o.type);
+    if (!def || !def.anchor || !M.isMetric()) return;
+    const near = M.wallNear(o, o.d / 2 + 0.35);
+    if (!near || near.t <= 0 || near.t >= 1) return;
+    let vx = o.x - near.point.x, vy = o.y - near.point.y;
+    const dist = Math.hypot(vx, vy);
+    if (dist < 1e-6) return;
+    vx /= dist; vy /= dist;
+    const off = near.wall.thickness / 2 + o.d / 2;
+    o.x = near.point.x + vx * off;
+    o.y = near.point.y + vy * off;
+    o.rotation = Math.round((Math.atan2(-vx, vy) * 180) / Math.PI);
+  }
+
+  // ---------- trazo arrastrando ----------
+  function gestureStart(e) {
+    const touches = e.evt.touches;
+    if (touches && touches.length > 1) { cancelGesture(); return; }
+    if (!(DRAG_TOOLS.includes(tool) || (tool === 'wall' && touches))) return;
+    const pos = stage.getRelativePointerPosition();
+    if (!pos) return;
+    stage.draggable(false);
+    const from = tool === 'wall' && chainLast ? M.node(chainLast) : null;
+    gesture = { kind: tool, start: snap(pos, null, from), cur: null, moved: false, screen: stage.getPointerPosition() };
+  }
+
+  function gestureMove(e) {
+    if (!gesture) return;
+    if (e.evt.touches && e.evt.touches.length > 1) { cancelGesture(); return; }
+    const sp = stage.getPointerPosition();
+    const pos = stage.getRelativePointerPosition();
+    if (!sp || !pos) return;
+    if (!gesture.moved && Math.hypot(sp.x - gesture.screen.x, sp.y - gesture.screen.y) < 8) return;
+    gesture.moved = true;
+    const from = gesture.kind === 'wall' ? (chainLast ? M.node(chainLast) : gesture.start) : null;
+    gesture.cur = snap(pos, null, from);
+    renderUi();
+  }
+
+  function gestureEnd() {
+    if (!gesture) return;
+    const g = gesture;
+    gesture = null;
+    stage.draggable(!DRAG_TOOLS.includes(tool));
+    if (!g.moved || !g.cur) { renderUi(); return; }
+    pinchedAt = Date.now(); // el mismo gesto no debe contar además como toque
+    const eps = px(3);
+    if (g.kind === 'wall') finishWall(chainLast || M.resolvePoint(g.start, eps).id, g.cur, eps);
+    else if (g.kind === 'detect') runDetection({ a: g.start, b: g.cur }, false);
+    else addRectangle(g.start, g.cur, eps);
+    renderUi();
+  }
+
+  // ---------- detección automática de muros sobre la mensura ----------
+  let lastDetection = null;
+
+  function runDetection(region, thin) {
+    if (!M.level.plan || !M.planImage) {
+      flashHint('Primero importá la mensura de este piso desde el Menú.');
+      return;
+    }
+    const res = SA.detect.run(region, { thin });
+    if (res.error) {
+      flashHint(res.error === 'small' ? 'El rectángulo es muy chico: abarcá toda la planta.' : 'No se pudo analizar la imagen.');
+      return;
+    }
+    if (!res.segments.length) {
+      flashHint('No se encontraron muros en esa zona. Probá con un rectángulo más ajustado a la planta.');
+      return;
+    }
+    const before = M.level.walls.length;
+    const eps = Math.max(px(3), res.joinTolerance);
+    res.segments.forEach(s => M.addWall(s.p, s.q, eps, s.thickness));
+    M.cleanupNodes();
+    res.doors.forEach(d => {
+      const near = M.wallNear(d.center, 0.3);
+      if (!near) return;
+      const o = { id: M.newId('o'), type: 'door', wallId: near.wall.id, t: near.t, width: d.width, flip: 0 };
+      clampOpening(o);
+      M.level.openings.push(o);
+    });
+    lastDetection = { region, thin, added: M.level.walls.length - before, rooms: M.faces().length };
+    M.commit();
+    selection = { kind: 'notice' };
+    render();
+  }
+
+  function cancelGesture() {
+    if (!gesture) return;
+    gesture = null;
+    stage.draggable(!DRAG_TOOLS.includes(tool));
+    renderUi();
+  }
+
   // Reescala a metros reales sin mover nada en pantalla
   E.calibrate = (k) => {
-    M.scaleAll(k, M.project.geomFollowsPlan || !M.project.plan);
+    M.scaleAll(k, M.level.geomFollowsPlan || !M.level.plan);
     const s = zoom() / k;
     stage.scale({ x: s, y: s });
-    E.setTool('select');
+    // Mensura recién calibrada y sin dibujo: el paso natural es detectar sus muros
+    E.setTool(M.level.plan && M.level.walls.length === 0 ? 'detect' : 'select');
     M.commit();
   };
 
@@ -244,9 +535,16 @@
     let text = HINTS[tool];
     if (tool === 'wall' && chainLast) text = 'Tocá la siguiente esquina. "Terminar muro" corta el tramo.';
     if (tool === 'calibrate' && calibStart) text = 'Ahora tocá el otro extremo de la cota.';
+    if (draft && draft.points.length) {
+      text = draft.kind === 'lote'
+        ? 'Tocá el siguiente vértice. Tocá el primero (o "Cerrar lote") para terminar.'
+        : 'Tocá el siguiente punto del eje. "Terminar calle" la cierra.';
+    }
     if (!M.isMetric()) text += ' — Mensura sin calibrar: las medidas aparecen al calibrar la escala.';
     hintEl.innerText = text;
-    finishBtn.classList.toggle('hidden', !(tool === 'wall' && chainLast));
+    const drafting = draft && draft.points.length;
+    finishBtn.innerText = drafting ? (draft.kind === 'lote' ? 'Cerrar lote' : 'Terminar calle') : 'Terminar muro';
+    finishBtn.classList.toggle('hidden', !((tool === 'wall' && chainLast) || drafting));
   }
 
   // ---------- herramientas y selección ----------
@@ -255,8 +553,10 @@
     tool = t;
     calibStart = null;
     hover = null;
+    gesture = null;
+    stage.draggable(!DRAG_TOOLS.includes(t)); // ahí arrastrar dibuja; la vista se mueve con dos dedos
     if (t === 'object') pendingObject = objectType;
-    if (t !== 'select') selection = null;
+    selection = null;
     if (E.onTool) E.onTool(t);
     render();
   };
@@ -264,6 +564,7 @@
 
   // Termina el muro en curso y descarta una esquina suelta sin muros
   E.endChain = (silent) => {
+    if (draft) { finishDraft(); return; }
     if (!chainLast) return;
     chainLast = null;
     M.cleanupNodes();
@@ -276,10 +577,12 @@
   }
 
   function selectionExists() {
-    const P = M.project;
+    const P = M.level;
     if (selection.kind === 'wall') return !!M.wall(selection.id);
     if (selection.kind === 'opening') return P.openings.some(o => o.id === selection.id);
     if (selection.kind === 'object') return P.objects.some(o => o.id === selection.id);
+    if (selection.kind === 'notice') return !!lastDetection;
+    if (selection.kind === 'shape') return P.shapes.some(s => s.id === selection.id);
     return true;
   }
 
@@ -288,6 +591,7 @@
     if (selection.kind === 'wall') M.removeWall(selection.id);
     else if (selection.kind === 'opening') M.removeOpening(selection.id);
     else if (selection.kind === 'object') M.removeObject(selection.id);
+    else if (selection.kind === 'shape') M.level.shapes = M.level.shapes.filter(s => s.id !== selection.id);
     else return;
     selection = null;
     M.commit();
@@ -306,12 +610,14 @@
   E.render = render;
 
   function renderBg() {
-    const P = M.project;
+    const P = M.level;
     layers.bg.destroyChildren();
 
     // Grilla de 1 metro (solo con medidas reales y si no queda demasiado densa)
+    gridNode = null;
+    planNode = null;
     if (M.isMetric()) {
-      layers.bg.add(new Konva.Shape({
+      gridNode = new Konva.Shape({
         sceneFunc: (ctx) => {
           const s = zoom();
           const step = s >= 12 ? 1 : s >= 2.4 ? 5 : 0;
@@ -325,33 +631,48 @@
           ctx.setAttr('lineWidth', 1 / s);
           ctx.stroke();
         }
-      }));
+      });
+      layers.bg.add(gridNode);
+    }
+
+    // Piso de abajo como referencia, para alinear muros y escaleras
+    const below = M.project.levels[M.project.active - 1];
+    if (below) {
+      below.walls.forEach(w => {
+        const a = below.nodes[w.a], b = below.nodes[w.b];
+        if (!a || !b) return;
+        layers.bg.add(new Konva.Line({ points: [a.x, a.y, b.x, b.y], stroke: '#cbd5e1', strokeWidth: w.thickness, lineCap: 'square' }));
+      });
     }
 
     if (P.plan && M.planImage) {
       const w = M.planImage.width * P.plan.mPerPx;
       const h = M.planImage.height * P.plan.mPerPx;
-      layers.bg.add(new Konva.Image({
+      planNode = new Konva.Image({
         image: M.planImage, x: P.plan.x - w / 2, y: P.plan.y - h / 2, width: w, height: h, opacity: 0.6
-      }));
+      });
+      layers.bg.add(planNode);
     }
     layers.bg.batchDraw();
   }
 
   function renderMain() {
-    const P = M.project;
+    const P = M.level;
     const L = layers.main;
     const metric = M.isMetric();
     const selecting = tool === 'select';
     L.destroyChildren();
 
-    // Ambientes detectados (caras cerradas entre muros)
+    // Ambientes detectados (caras cerradas entre muros). Sobre una mensura no la tapan:
+    // los que no tienen nombre quedan invisibles y los nombrados, semitransparentes.
+    const overPlan = !!(P.plan && M.planImage);
     M.faces().forEach(face => {
       const rt = LIB.roomType(face.label ? face.label.type : 'otro');
       const isSel = selection && selection.kind === 'room' && M.pointInPoly(selection.point, face.poly);
+      const visible = !overPlan || !!face.label;
       const shape = new Konva.Line({
         points: face.poly.flatMap(p => [p.x, p.y]), closed: true,
-        fill: rt.color, opacity: 0.75,
+        fill: visible ? rt.color : 'rgba(0, 0, 0, 0.002)', opacity: overPlan ? 0.35 : 0.75,
         stroke: isSel ? COLORS.selected : null, strokeWidth: px(3)
       });
       shape.on('click tap', (e) => {
@@ -360,6 +681,7 @@
         select({ kind: 'room', point: face.label ? { x: face.label.x, y: face.label.y } : stage.getRelativePointerPosition() });
       });
       L.add(shape);
+      if (!visible) return;
 
       const name = face.label ? face.label.name : rt.name;
       const text = new Konva.Text({
@@ -372,19 +694,44 @@
       L.add(text);
     });
 
+    renderShapes(L, metric);
+
     // Muros
     P.walls.forEach(w => {
       const a = M.node(w.a), b = M.node(w.b);
       const isSel = selection && selection.kind === 'wall' && selection.id === w.id;
       const line = new Konva.Line({
         points: [a.x, a.y, b.x, b.y], stroke: isSel ? COLORS.selected : COLORS.wall,
-        strokeWidth: w.thickness, lineCap: 'square', hitStrokeWidth: Math.max(w.thickness, px(24))
+        strokeWidth: w.thickness, lineCap: 'square', hitStrokeWidth: Math.max(w.thickness, px(24)),
+        draggable: selecting
       });
       line.on('click tap', (e) => {
         if (tool !== 'select') return;
         e.cancelBubble = true;
         select({ kind: 'wall', id: w.id });
       });
+      // Arrastrar un muro lo desplaza en paralelo; los muros vecinos se estiran con él
+      let lastPos = null;
+      line.on('dragstart', () => {
+        lastPos = stage.getRelativePointerPosition();
+        selection = { kind: 'wall', id: w.id };
+        layers.handles.destroyChildren();
+        line.moveTo(layers.handles);
+      });
+      line.on('dragmove', () => {
+        const p = stage.getRelativePointerPosition();
+        const len = Math.hypot(b.x - a.x, b.y - a.y);
+        if (!p || !lastPos || !len) return;
+        const nx = -(b.y - a.y) / len, ny = (b.x - a.x) / len;
+        const d = (p.x - lastPos.x) * nx + (p.y - lastPos.y) * ny;
+        a.x += nx * d; a.y += ny * d;
+        b.x += nx * d; b.y += ny * d;
+        lastPos = p;
+        line.position({ x: 0, y: 0 });
+        line.points([a.x, a.y, b.x, b.y]);
+        renderMain();
+      });
+      line.on('dragend', () => setTimeout(() => M.commit(), 0));
       L.add(line);
     });
 
@@ -434,6 +781,9 @@
     L.batchDraw();
   }
 
+  // Las aberturas se pueden tocar y arrastrar sin salir de las herramientas Puerta/Ventana
+  const OPENING_TOOLS = ['select', 'door', 'window'];
+
   function buildOpening(o) {
     const w = M.wall(o.wallId);
     if (!w) return null;
@@ -450,7 +800,7 @@
       x: a.x + (b.x - a.x) * o.t, y: a.y + (b.y - a.y) * o.t,
       rotation: (Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI,
       scaleX: o.flip & 1 ? -1 : 1, scaleY: o.flip & 2 ? -1 : 1,
-      draggable: tool === 'select'
+      draggable: OPENING_TOOLS.includes(tool)
     });
     // Vano: tapa el muro
     g.add(new Konva.Rect({ x: -width / 2, y: -th / 2, width, height: th, fill: '#ffffff', stroke, strokeWidth: sw, hitStrokeWidth: px(26) }));
@@ -462,7 +812,7 @@
     }
 
     g.on('click tap', (e) => {
-      if (tool !== 'select') return;
+      if (!OPENING_TOOLS.includes(tool)) return;
       e.cancelBubble = true;
       select({ kind: 'opening', id: o.id });
     });
@@ -511,6 +861,7 @@
     });
     g.on('dragend', () => {
       o.x = g.x(); o.y = g.y();
+      anchorToWall(o);
       selection = { kind: 'object', id: o.id };
       setTimeout(() => M.commit(), 0);
     });
@@ -527,8 +878,8 @@
     const L = layers.handles;
     L.destroyChildren();
     if (tool === 'select') {
-      for (const id in M.project.nodes) {
-        const n = M.project.nodes[id];
+      for (const id in M.level.nodes) {
+        const n = M.level.nodes[id];
         const c = new Konva.Circle({
           x: n.x, y: n.y, radius: px(6), fill: '#ffffff', stroke: COLORS.selected,
           strokeWidth: px(2), hitStrokeWidth: px(22), draggable: true
@@ -546,6 +897,23 @@
         });
         L.add(c);
       }
+    }
+    if (tool === 'select' && selection && selection.kind === 'shape') {
+      const sh = M.level.shapes.find(s => s.id === selection.id);
+      if (sh) sh.points.forEach(p => {
+        const c = new Konva.Circle({
+          x: p.x, y: p.y, radius: px(7), fill: '#ffffff', stroke: COLORS.lot,
+          strokeWidth: px(2.5), hitStrokeWidth: px(24), draggable: true
+        });
+        c.on('dragmove', () => {
+          const s = snap(c.position(), null, null, p);
+          p.x = s.x; p.y = s.y;
+          c.position({ x: s.x, y: s.y });
+          renderMain();
+        });
+        c.on('dragend', () => setTimeout(() => M.commit(), 0));
+        L.add(c);
+      });
     } else if (chainLast && M.node(chainLast)) {
       const n = M.node(chainLast);
       L.add(new Konva.Circle({ x: n.x, y: n.y, radius: px(6), fill: COLORS.guide, listening: false }));
@@ -557,19 +925,59 @@
   function renderUi() {
     const L = layers.ui;
     L.destroyChildren();
-    const from = tool === 'wall' && chainLast ? M.node(chainLast) : tool === 'calibrate' ? calibStart : null;
+    const dragging = gesture && gesture.moved && gesture.cur;
+    const label = (x, y, text) => {
+      const t = new Konva.Text({ x, y, text, fontSize: px(14), fontStyle: 'bold', fill: '#b45309' });
+      t.offsetX(t.width() / 2);
+      L.add(new Konva.Rect({ x: x - t.width() / 2 - px(5), y: y - px(3), width: t.width() + px(10), height: t.height() + px(6), fill: '#fffbeb', stroke: COLORS.guide, strokeWidth: px(1), cornerRadius: px(4) }));
+      L.add(t);
+    };
+
+    if (dragging && (gesture.kind === 'room' || gesture.kind === 'detect')) {
+      const p = gesture.start, q = gesture.cur;
+      const isDetect = gesture.kind === 'detect';
+      L.add(new Konva.Rect({
+        x: Math.min(p.x, q.x), y: Math.min(p.y, q.y), width: Math.abs(q.x - p.x), height: Math.abs(q.y - p.y),
+        stroke: isDetect ? COLORS.selected : COLORS.guide, strokeWidth: px(2), dash: [px(6), px(5)],
+        fill: isDetect ? 'rgba(14, 165, 233, 0.08)' : 'rgba(245, 158, 11, 0.08)'
+      }));
+      if (M.isMetric() && !isDetect) label((p.x + q.x) / 2, Math.min(p.y, q.y) - px(30), `${fmt(Math.abs(q.x - p.x))} × ${fmt(Math.abs(q.y - p.y))} m`);
+      L.batchDraw();
+      return;
+    }
+
+    if (draft && draft.points.length) {
+      const all = hover ? [...draft.points, hover] : draft.points.slice();
+      const flat = all.flatMap(p => [p.x, p.y]);
+      if (draft.kind === 'calle' && all.length >= 2) {
+        L.add(new Konva.Line({ points: flat, stroke: COLORS.street, opacity: 0.3, strokeWidth: M.isMetric() ? 12 : px(40), lineJoin: 'round' }));
+      }
+      L.add(new Konva.Line({ points: flat, stroke: draft.kind === 'lote' ? COLORS.lot : '#334155', strokeWidth: px(2.5), dash: [px(7), px(5)] }));
+      draft.points.forEach((p, i) => L.add(new Konva.Circle({ x: p.x, y: p.y, radius: px(i === 0 ? 7 : 5), fill: draft.kind === 'lote' ? COLORS.lot : '#334155' })));
+      const last = draft.points[draft.points.length - 1];
+      if (hover && M.isMetric()) label((last.x + hover.x) / 2, (last.y + hover.y) / 2 + px(10), `${fmt(Math.hypot(hover.x - last.x, hover.y - last.y))} m`);
+      L.batchDraw();
+      return;
+    }
+
+    let from = tool === 'wall' && chainLast ? M.node(chainLast) : tool === 'calibrate' ? calibStart : null;
+    let to = hover;
+    if (dragging && gesture.kind === 'wall') {
+      from = chainLast ? M.node(chainLast) : gesture.start;
+      to = gesture.cur;
+    }
     if (from) L.add(new Konva.Circle({ x: from.x, y: from.y, radius: px(5), fill: COLORS.guide }));
-    if (from && hover) {
-      L.add(new Konva.Line({ points: [from.x, from.y, hover.x, hover.y], stroke: COLORS.guide, strokeWidth: px(2), dash: [px(6), px(5)] }));
+    if (from && to) {
+      L.add(new Konva.Line({ points: [from.x, from.y, to.x, to.y], stroke: COLORS.guide, strokeWidth: px(2), dash: [px(6), px(5)] }));
       if (M.isMetric() && tool === 'wall') {
-        L.add(new Konva.Text({
-          x: (from.x + hover.x) / 2 + px(8), y: (from.y + hover.y) / 2 + px(8),
-          text: `${fmt(Math.hypot(hover.x - from.x, hover.y - from.y))} m`, fontSize: px(12), fontStyle: 'bold', fill: '#b45309'
-        }));
+        // Con el dedo, la medida va arriba para que la mano no la tape
+        const text = `${fmt(Math.hypot(to.x - from.x, to.y - from.y))} m`;
+        if (dragging) label(to.x, to.y - px(62), text);
+        else label((from.x + to.x) / 2, (from.y + to.y) / 2 + px(10), text);
       }
     }
-    if (hover && hover.kind !== 'free' && (tool === 'wall' || tool === 'calibrate')) {
-      L.add(new Konva.Circle({ x: hover.x, y: hover.y, radius: px(8), stroke: COLORS.guide, strokeWidth: px(2) }));
+    if (to && (dragging || to.kind !== 'free') && (tool === 'wall' || tool === 'calibrate')) {
+      L.add(new Konva.Circle({ x: to.x, y: to.y, radius: px(8), stroke: COLORS.guide, strokeWidth: px(2) }));
     }
     L.batchDraw();
   }
@@ -585,14 +993,45 @@
   const DELETE_BTN = button('Borrar', 'delete', 'bg-rose-500/20 border-rose-500/40 text-rose-300');
 
   function updatePanel() {
-    const P = M.project;
-    if (!selection || tool !== 'select') { panelEl.classList.add('hidden'); return; }
+    const P = M.level;
+    if (!selection) { panelEl.classList.add('hidden'); return; }
     const metric = M.isMetric();
     let html = '';
     let apply = null;   // (key, value) => cambios en el modelo
     let actions = {};
 
-    if (selection.kind === 'wall') {
+    if (selection.kind === 'notice') {
+      const d = lastDetection;
+      html = `<b class="text-sky-400">Detección</b><span class="text-slate-200">${d.added} muros nuevos · ${d.rooms} ambientes</span>` +
+        (d.thin ? '' : button('Incluir líneas finas', 'thin')) +
+        button('Deshacer', 'undo', 'bg-amber-500/20 border-amber-500/40 text-amber-200') +
+        button('Listo', 'done', 'bg-emerald-500/20 border-emerald-500/40 text-emerald-200');
+      panelEl.innerHTML = html;
+      panelEl.classList.remove('hidden');
+      panelEl.querySelectorAll('[data-act]').forEach(btn => btn.addEventListener('click', () => {
+        const act = btn.dataset.act;
+        lastDetection = null;
+        selection = null;
+        if (act === 'undo' || act === 'thin') M.undo();
+        if (act === 'thin') runDetection(d.region, true);
+        else render();
+      }));
+      return;
+    }
+
+    let textApply = null; // (key, texto) => cambios en el modelo
+
+    if (selection.kind === 'shape') {
+      const sh = P.shapes.find(s => s.id === selection.id);
+      const isLote = sh.kind === 'lote';
+      html = `<b class="text-sky-400">${isLote ? 'Lote' : 'Calle'}</b>
+        <input data-text="name" type="text" value="${sh.name.replace(/"/g, '&quot;')}"
+          class="w-32 bg-slate-800 border border-slate-600 rounded px-2 py-1 text-slate-100">` +
+        (isLote && metric ? `<span class="text-emerald-400 font-bold">${fmt(polyArea(sh.points))} m²</span>` : '') +
+        (!isLote && metric ? field('Ancho (m)', 'width', sh.width.toFixed(2), 0.5) : '') + DELETE_BTN;
+      apply = (key, v) => { if (key === 'width' && v > 0) sh.width = v; };
+      textApply = (key, value) => { if (value) sh.name = value; };
+    } else if (selection.kind === 'wall') {
       const w = M.wall(selection.id);
       html = `<b class="text-sky-400">Muro</b>` +
         (metric ? field('Largo (m)', 'length', M.wallLength(w).toFixed(2), 0.05) : '') +
@@ -660,6 +1099,9 @@
         if (!isNaN(v)) { apply(input.dataset.key, v); M.commit(); }
       });
     });
+    panelEl.querySelectorAll('[data-text]').forEach(input => {
+      input.addEventListener('change', () => { textApply(input.dataset.text, input.value.trim()); M.commit(); });
+    });
     panelEl.querySelectorAll('[data-act]').forEach(btn => {
       btn.addEventListener('click', () => {
         if (btn.dataset.act === 'delete') { E.deleteSelection(); return; }
@@ -673,11 +1115,12 @@
   E.viewCenter = () => ({ x: (stage.width() / 2 - stage.x()) / zoom(), y: (stage.height() / 2 - stage.y()) / zoom() });
 
   function contentBounds() {
-    const P = M.project;
+    const P = M.level;
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
     const add = (x, y) => { minX = Math.min(minX, x); maxX = Math.max(maxX, x); minY = Math.min(minY, y); maxY = Math.max(maxY, y); };
     for (const id in P.nodes) add(P.nodes[id].x, P.nodes[id].y);
     P.objects.forEach(o => { const r = Math.max(o.w, o.d) / 2; add(o.x - r, o.y - r); add(o.x + r, o.y + r); });
+    P.shapes.forEach(sh => sh.points.forEach(p => add(p.x, p.y)));
     if (P.plan && M.planImage) {
       const hw = (M.planImage.width * P.plan.mPerPx) / 2, hh = (M.planImage.height * P.plan.mPerPx) / 2;
       add(P.plan.x - hw, P.plan.y - hh); add(P.plan.x + hw, P.plan.y + hh);
@@ -703,9 +1146,8 @@
 
   // Coloca una mensura encuadrada en la vista actual
   E.setPlanImage = (img, src) => {
-    const P = M.project;
-    M.planImage = img;
-    M.planSrc = src;
+    const P = M.level;
+    M.setPlanImage(img, src);
     const c = E.viewCenter();
     P.plan = {
       x: c.x, y: c.y, calibrated: false,
@@ -717,24 +1159,57 @@
   };
 
   E.removePlan = () => {
-    M.project.plan = null;
-    M.project.geomFollowsPlan = false;
+    M.level.plan = null;
+    M.level.geomFollowsPlan = false;
     M.commit();
   };
 
-  // Imagen del plano tal como se ve, sobre fondo blanco y sin controles de edición
+  // Imagen para exportar. Con mensura: la imagen completa en su resolución original, con lo
+  // dibujado encima y sin fondo agregado. Sin mensura: el dibujo completo sobre fondo blanco.
   E.toPNG = () => {
+    const P = M.level;
+    const b = contentBounds();
+    if (!b) return null;
+    const saved = { scale: zoom(), x: stage.x(), y: stage.y() };
     const prevSel = selection;
     selection = null;
+
+    // Encuadro lo que se exporta para que textos y trazos queden proporcionados
+    const withPlan = !!(P.plan && M.planImage);
+    let area;
+    if (withPlan) {
+      const w = M.planImage.width * P.plan.mPerPx, h = M.planImage.height * P.plan.mPerPx;
+      area = { minX: P.plan.x - w / 2, minY: P.plan.y - h / 2, maxX: P.plan.x + w / 2, maxY: P.plan.y + h / 2 };
+    } else {
+      const m = Math.max(b.maxX - b.minX, b.maxY - b.minY) * 0.06;
+      area = { minX: b.minX - m, minY: b.minY - m, maxX: b.maxX + m, maxY: b.maxY + m };
+    }
+    const spanX = area.maxX - area.minX, spanY = area.maxY - area.minY;
+    const s = Math.min(stage.width() / spanX, stage.height() / spanY);
+    stage.scale({ x: s, y: s });
+    stage.position({ x: -area.minX * s, y: -area.minY * s });
     render();
     layers.handles.hide();
-    const s = zoom();
-    const bgRect = new Konva.Rect({ x: -stage.x() / s, y: -stage.y() / s, width: stage.width() / s, height: stage.height() / s, fill: '#ffffff' });
-    layers.bg.add(bgRect);
-    bgRect.moveToBottom();
-    const url = stage.toDataURL({ pixelRatio: 3 });
-    bgRect.destroy();
+    layers.ui.hide();
+    if (gridNode) gridNode.hide();
+    if (planNode) planNode.opacity(1);
+    let bgRect = null;
+    if (!withPlan) {
+      bgRect = new Konva.Rect({ x: area.minX, y: area.minY, width: spanX, height: spanY, fill: '#ffffff' });
+      layers.bg.add(bgRect);
+      bgRect.moveToBottom();
+    }
+
+    const pixelRatio = withPlan
+      ? Math.min(M.planImage.width / (spanX * s), 8000 / (Math.max(spanX, spanY) * s))
+      : Math.min(4, 4000 / (Math.max(spanX, spanY) * s));
+    const url = stage.toDataURL({ x: 0, y: 0, width: spanX * s, height: spanY * s, pixelRatio });
+
+    if (bgRect) bgRect.destroy();
     layers.handles.show();
+    layers.ui.show();
+    stage.scale({ x: saved.scale, y: saved.scale });
+    stage.position({ x: saved.x, y: saved.y });
     selection = prevSel;
     render();
     return url;

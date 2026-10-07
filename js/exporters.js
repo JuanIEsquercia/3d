@@ -19,7 +19,7 @@
 
   const baseName = () => (M.project.name || 'inmueble').trim().toLowerCase().replace(/[^a-z0-9áéíóúñ]+/gi, '-') || 'inmueble';
   const hasWalls = () => {
-    if (M.project.walls.length) return true;
+    if (M.project.levels.some(l => l.walls.length)) return true;
     alert('Primero dibujá al menos un muro.');
     return false;
   };
@@ -32,7 +32,7 @@
   X.openProject = async (file) => {
     try {
       const data = JSON.parse(await file.text());
-      if (data.version !== 1 || !data.nodes || !Array.isArray(data.walls)) throw new Error('formato');
+      if (!M.isProjectData(data)) throw new Error('formato');
       await M.load(data);
       return true;
     } catch (err) {
@@ -112,7 +112,7 @@
     segments.forEach(([p, q]) => {
       const a = nodeFor(p), b = nodeFor(q);
       if (a !== b && !M.wallBetween(a, b)) {
-        M.project.walls.push({ id: M.newId('w'), a, b, thickness: M.project.settings.wallThickness });
+        M.level.walls.push({ id: M.newId('w'), a, b, thickness: M.project.settings.wallThickness });
       }
     });
     M.commit();
@@ -121,21 +121,35 @@
 
   // ---------- exportaciones ----------
   X.exportPNG = () => {
+    const url = SA.editor.toPNG();
+    if (!url) { alert('No hay nada para exportar todavía.'); return; }
     const a = document.createElement('a');
-    a.href = SA.editor.toPNG();
-    a.download = `${baseName()}-plano.png`;
+    a.href = url;
+    a.download = `${baseName()}-${M.level.name.toLowerCase().replace(/[^a-z0-9áéíóúñ]+/gi, '-')}.png`;
     a.click();
   };
 
   X.exportDXF = () => {
-    if (!hasWalls()) return;
+    if (!M.project.levels.some(l => l.walls.length || l.shapes.length)) { alert('Primero dibujá un muro, un lote o una calle.'); return; }
     let dxf = '0\nSECTION\n2\nHEADER\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n';
-    M.project.walls.forEach(w => {
-      const a = M.node(w.a), b = M.node(w.b);
-      dxf += '0\nLINE\n8\nMUROS\n';
+    // Cada piso en su propia capa
+    M.project.levels.forEach((level, index) => level.walls.forEach(w => {
+      const a = level.nodes[w.a], b = level.nodes[w.b];
+      dxf += `0\nLINE\n8\nMUROS_PISO_${index}\n`;
       dxf += `10\n${a.x.toFixed(4)}\n20\n${(-a.y).toFixed(4)}\n30\n0.0\n`;
       dxf += `11\n${b.x.toFixed(4)}\n21\n${(-b.y).toFixed(4)}\n31\n0.0\n`;
-    });
+    }));
+    // Lotes (cerrados) y ejes de calles
+    M.project.levels.forEach((level, index) => level.shapes.forEach(sh => {
+      const pts = sh.points;
+      const count = sh.kind === 'lote' ? pts.length : pts.length - 1;
+      for (let i = 0; i < count; i++) {
+        const a = pts[i], b = pts[(i + 1) % pts.length];
+        dxf += `0\nLINE\n8\n${sh.kind === 'lote' ? 'LOTES' : 'CALLES'}_PISO_${index}\n`;
+        dxf += `10\n${a.x.toFixed(4)}\n20\n${(-a.y).toFixed(4)}\n30\n0.0\n`;
+        dxf += `11\n${b.x.toFixed(4)}\n21\n${(-b.y).toFixed(4)}\n31\n0.0\n`;
+      }
+    }));
     dxf += '0\nENDSEC\n0\nEOF\n';
     download(dxf, `${baseName()}.dxf`, 'application/dxf');
   };
@@ -157,19 +171,20 @@
   // Nube de puntos: muestreo de las caras de los muros (para herramientas de escaneo)
   X.exportPLY = () => {
     if (!hasWalls()) return;
-    const H = M.project.settings.wallHeight;
     const step = 0.1;
     const rows = [];
-    M.project.walls.forEach(w => {
-      const a = M.node(w.a), b = M.node(w.b);
+    M.project.levels.forEach((level, index) => level.walls.forEach(w => {
+      const H = level.height;
+      const base = SA.view3d.elevation(index);
+      const a = level.nodes[w.a], b = level.nodes[w.b];
       const len = Math.hypot(b.x - a.x, b.y - a.y);
       const n = Math.max(1, Math.round(len / step));
       const m = Math.max(1, Math.round(H / step));
       for (let i = 0; i <= n; i++) {
         const x = a.x + ((b.x - a.x) * i) / n, z = a.y + ((b.y - a.y) * i) / n;
-        for (let j = 0; j <= m; j++) rows.push(`${x.toFixed(3)} ${((H * j) / m).toFixed(3)} ${z.toFixed(3)}`);
+        for (let j = 0; j <= m; j++) rows.push(`${x.toFixed(3)} ${(base + (H * j) / m).toFixed(3)} ${z.toFixed(3)}`);
       }
-    });
+    }));
     const header = `ply\nformat ascii 1.0\ncomment ScanArch Studio\nelement vertex ${rows.length}\nproperty float x\nproperty float y\nproperty float z\nend_header\n`;
     download(header + rows.join('\n') + '\n', `${baseName()}-nube.ply`, 'text/plain');
   };

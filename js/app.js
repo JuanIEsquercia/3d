@@ -1,11 +1,12 @@
-// Interfaz: pestañas, menú, barra de herramientas y arranque de la aplicación.
+// Interfaz: pestañas, pisos, menú, barra de herramientas y arranque de la aplicación.
 (function () {
   const SA = window.SA;
   const M = SA.model;
   const $ = (id) => document.getElementById(id);
+  const fmt = (n) => n.toFixed(2).replace('.', ',');
 
   const A = { activeTab: 'cad' };
-  const views = { cad: 'view-cad', cam: 'view-camera', '3d': 'view-3d' };
+  const views = { cad: 'view-cad', '3d': 'view-3d' };
   let view3dReady = false;
 
   A.switchTab = (tab) => {
@@ -19,8 +20,6 @@
 
     if (tab === 'cad') {
       SA.editor.resize();
-    } else if (tab === 'cam') {
-      SA.capture.start();
     } else if (tab === '3d') {
       if (!view3dReady) {
         SA.view3d.init($('three-container'));
@@ -34,17 +33,56 @@
 
   function updateMetrics() {
     const P = M.project;
-    const metric = M.isMetric();
-    $('metric-area-top').innerText = metric ? `${M.totalArea().toFixed(2).replace('.', ',')} m²` : 'sin escala';
-    $('hud-3d-walls').innerText = P.walls.length;
-    $('hud-3d-openings').innerText = P.openings.length;
-    $('hud-3d-objects').innerText = P.objects.length;
-    $('plan-loaded-banner').classList.toggle('hidden', !(P.plan && M.planImage));
-    $('plan-status').innerText = P.plan && P.plan.calibrated ? 'Escala calibrada' : 'Falta calibrar la escala';
+    const L = M.level;
+    const several = P.levels.length > 1;
+
+    $('metric-area-label').innerText = several ? 'SUPERFICIE TOTAL' : 'SUPERFICIE';
+    $('metric-area-top').innerText = M.isMetric() ? `${fmt(several ? M.buildingArea() : M.totalArea())} m²` : 'sin escala';
+
+    // Selector de pisos con la superficie de cada uno
+    $('level-select').innerHTML = P.levels.map((l, i) => {
+      const area = M.withLevel(i, () => (M.isMetric() ? ` · ${fmt(M.totalArea())} m²` : ''));
+      return `<option value="${i}" ${i === P.active ? 'selected' : ''}>${l.name}${area}</option>`;
+    }).join('');
+    $('btn-level-delete').disabled = !several;
+
+    const count = (key) => P.levels.reduce((sum, l) => sum + l[key].length, 0);
+    $('hud-3d-levels').innerText = P.levels.length;
+    $('hud-3d-walls').innerText = count('walls');
+    $('hud-3d-openings').innerText = count('openings');
+    $('hud-3d-objects').innerText = count('objects');
+
+    $('plan-loaded-banner').classList.toggle('hidden', !(L.plan && M.planImage));
+    $('plan-status').innerText = L.plan && L.plan.calibrated ? 'escala calibrada' : 'falta calibrar la escala';
     $('btn-undo').disabled = !M.canUndo();
-    $('input-wall-height').value = P.settings.wallHeight.toFixed(2);
+    $('label-level-height').innerText = `Altura ${L.name} (m)`;
+    $('input-wall-height').value = L.height.toFixed(2);
     $('input-wall-thickness').value = P.settings.wallThickness.toFixed(2);
     if (A.activeTab === '3d' && view3dReady) SA.view3d.refresh();
+  }
+
+  // ---------- pisos ----------
+  function initLevels() {
+    $('level-select').addEventListener('change', (e) => {
+      SA.editor.setTool('select');
+      M.setActiveLevel(parseInt(e.target.value, 10));
+    });
+    $('btn-level-add').addEventListener('click', () => {
+      const copy = M.level.walls.length > 0 &&
+        confirm(`¿Copiar los muros y aberturas de "${M.level.name}" al piso nuevo?\n\nAceptar: copiar · Cancelar: piso vacío`);
+      SA.editor.setTool(copy ? 'select' : 'wall');
+      M.addLevel(copy);
+    });
+    $('btn-level-rename').addEventListener('click', () => {
+      const name = prompt('Nombre del piso:', M.level.name);
+      if (name && name.trim()) M.renameLevel(M.project.active, name.trim());
+    });
+    $('btn-level-delete').addEventListener('click', () => {
+      if (M.project.levels.length <= 1) return;
+      if (!confirm(`¿Eliminar "${M.level.name}" con todo lo dibujado en él?`)) return;
+      SA.editor.setTool('select');
+      M.removeLevel(M.project.active);
+    });
   }
 
   // ---------- barra de herramientas del plano ----------
@@ -121,7 +159,7 @@
     $('btn-new-project').addEventListener('click', async () => {
       if (!confirm('¿Empezar un proyecto nuevo? Se borra el plano actual (guardalo antes si lo necesitás).')) return;
       await M.reset();
-      SA.editor.setTool('select');
+      SA.editor.setTool('wall');
     });
     $('btn-export-png').addEventListener('click', SA.exporters.exportPNG);
     $('btn-export-dxf').addEventListener('click', SA.exporters.exportDXF);
@@ -134,18 +172,22 @@
   function init3dControls() {
     $('input-wall-height').addEventListener('change', (e) => {
       const v = parseFloat(e.target.value);
-      if (v > 0) { M.project.settings.wallHeight = v; M.commit(); }
+      if (v > 0) { M.level.height = v; M.commit(); }
     });
     $('input-wall-thickness').addEventListener('change', (e) => {
       const v = parseFloat(e.target.value);
       if (v > 0) {
         M.project.settings.wallThickness = v;
-        M.project.walls.forEach(w => { w.thickness = v; });
+        M.level.walls.forEach(w => { w.thickness = v; });
         M.commit();
       }
     });
     $('select-render-mode').addEventListener('change', (e) => {
       SA.view3d.renderMode = e.target.value;
+      SA.view3d.refresh(true);
+    });
+    $('select-levels-3d').addEventListener('change', (e) => {
+      SA.view3d.showLevels = e.target.value;
       SA.view3d.refresh(true);
     });
     $('btn-frame-3d').addEventListener('click', () => SA.view3d.frame());
@@ -158,9 +200,9 @@
       container: $('cad-stage'), panel: $('sel-panel'), hint: $('cad-hint'), finishBtn: $('btn-finish-wall')
     });
     initToolbar();
+    initLevels();
     initMenu();
     init3dControls();
-    SA.capture.init();
 
     Object.keys(views).forEach(key => $(`tab-${key}`).addEventListener('click', () => A.switchTab(key)));
     window.addEventListener('resize', () => {
@@ -171,7 +213,7 @@
     M.on(updateMetrics);
     await M.restoreAutosave();
     A.switchTab('cad');
-    SA.editor.setTool(M.project.walls.length ? 'select' : 'wall');
+    SA.editor.setTool(M.level.walls.length ? 'select' : 'wall');
     SA.editor.fitView();
   });
 

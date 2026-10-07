@@ -80,13 +80,13 @@
       </div>
       <div class="min-w-0">
         <h1 class="text-sm font-bold tracking-wide text-white leading-tight truncate">ScanArch Studio</h1>
-        <p class="text-[10px] text-slate-400 font-mono truncate">PLANO 2D &middot; RELEVAMIENTO &middot; 3D</p>
+        <p class="text-[10px] text-slate-400 font-mono truncate">PLANOS 2D &middot; MODELO 3D</p>
       </div>
     </div>
 
     <div class="flex items-center gap-3 text-xs font-mono">
       <div class="flex flex-col items-end">
-        <span class="text-slate-400 text-[10px]">SUPERFICIE</span>
+        <span id="metric-area-label" class="text-slate-400 text-[10px]">SUPERFICIE</span>
         <span id="metric-area-top" class="text-emerald-400 font-bold">0,00 m²</span>
       </div>
 
@@ -116,7 +116,7 @@
 
           <div class="px-3 pt-2 pb-1 text-[10px] font-bold text-slate-500 uppercase tracking-wider border-t border-slate-800 mt-1">Exportar</div>
           <button id="btn-export-png" class="w-full px-3 py-2.5 text-left hover:bg-slate-800 flex items-center gap-2">
-            <i data-lucide="image" class="w-4 h-4 text-rose-400"></i> Plano en imagen (.PNG)
+            <i data-lucide="image" class="w-4 h-4 text-rose-400"></i> Imagen con la mensura (.PNG)
           </button>
           <button id="btn-export-dxf" class="w-full px-3 py-2.5 text-left hover:bg-slate-800 flex items-center gap-2">
             <i data-lucide="file-text" class="w-4 h-4 text-sky-400"></i> Plano CAD (.DXF)
@@ -142,36 +142,36 @@
     <div id="view-cad" class="absolute inset-0 flex flex-col bg-slate-900">
       <!-- Herramientas -->
       <div class="scroll-x bg-slate-900 border-b border-slate-800 flex-shrink-0">
-        <div class="flex items-center gap-1.5 p-2 w-max text-[11px] font-medium">
-          <div class="flex bg-slate-800 rounded-lg p-0.5 border border-slate-700">
-            <button data-tool="select" class="px-2.5 py-1.5 rounded-md text-slate-300 flex items-center gap-1 whitespace-nowrap">
-              <i data-lucide="mouse-pointer" class="w-3.5 h-3.5"></i> Seleccionar
-            </button>
-            <button data-tool="wall" class="px-2.5 py-1.5 rounded-md text-slate-300 flex items-center gap-1 whitespace-nowrap">
-              <i data-lucide="pencil-ruler" class="w-3.5 h-3.5"></i> Muro
-            </button>
-            <button data-tool="door" class="px-2.5 py-1.5 rounded-md text-slate-300 flex items-center gap-1 whitespace-nowrap">
-              <i data-lucide="door-open" class="w-3.5 h-3.5"></i> Puerta
-            </button>
-            <button data-tool="window" class="px-2.5 py-1.5 rounded-md text-slate-300 flex items-center gap-1 whitespace-nowrap">
-              <i data-lucide="app-window" class="w-3.5 h-3.5"></i> Ventana
-            </button>
-            <button data-tool="object" class="px-2.5 py-1.5 rounded-md text-slate-300 flex items-center gap-1 whitespace-nowrap">
-              <i data-lucide="sofa" class="w-3.5 h-3.5"></i> Objeto
-            </button>
-            <button data-tool="calibrate" class="px-2.5 py-1.5 rounded-md text-slate-300 flex items-center gap-1 whitespace-nowrap">
-              <i data-lucide="ruler" class="w-3.5 h-3.5"></i> Calibrar
-            </button>
-          </div>
-
-          <button id="btn-undo" class="px-2.5 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-amber-300 flex items-center gap-1 whitespace-nowrap disabled:opacity-40">
-            <i data-lucide="undo-2" class="w-3.5 h-3.5"></i> Deshacer
+        <div class="flex items-stretch gap-0.5 p-1.5 min-w-full w-max text-[10px] font-medium">
+          <button data-tool="select" class="flex-1 min-w-[50px] px-1 py-1.5 rounded-lg text-slate-300 flex flex-col items-center gap-0.5 whitespace-nowrap">
+            <i data-lucide="mouse-pointer" class="w-4 h-4"></i><span>Seleccionar</span>
           </button>
-          <button id="btn-redo" class="px-2.5 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-amber-300 flex items-center gap-1 whitespace-nowrap">
-            <i data-lucide="redo-2" class="w-3.5 h-3.5"></i> Rehacer
+          <button data-tool="wall" class="flex-1 min-w-[50px] px-1 py-1.5 rounded-lg text-slate-300 flex flex-col items-center gap-0.5 whitespace-nowrap">
+            <i data-lucide="pencil-ruler" class="w-4 h-4"></i><span>Muro</span>
           </button>
-          <button id="btn-fit-view" class="px-2.5 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-200 flex items-center gap-1 whitespace-nowrap">
-            <i data-lucide="maximize" class="w-3.5 h-3.5"></i> Encuadrar
+          <button data-tool="room" class="flex-1 min-w-[50px] px-1 py-1.5 rounded-lg text-slate-300 flex flex-col items-center gap-0.5 whitespace-nowrap">
+            <i data-lucide="square" class="w-4 h-4"></i><span>Ambiente</span>
+          </button>
+          <button data-tool="door" class="flex-1 min-w-[50px] px-1 py-1.5 rounded-lg text-slate-300 flex flex-col items-center gap-0.5 whitespace-nowrap">
+            <i data-lucide="door-open" class="w-4 h-4"></i><span>Puerta</span>
+          </button>
+          <button data-tool="window" class="flex-1 min-w-[50px] px-1 py-1.5 rounded-lg text-slate-300 flex flex-col items-center gap-0.5 whitespace-nowrap">
+            <i data-lucide="app-window" class="w-4 h-4"></i><span>Ventana</span>
+          </button>
+          <button data-tool="object" class="flex-1 min-w-[50px] px-1 py-1.5 rounded-lg text-slate-300 flex flex-col items-center gap-0.5 whitespace-nowrap">
+            <i data-lucide="sofa" class="w-4 h-4"></i><span>Objeto</span>
+          </button>
+          <button data-tool="lote" class="flex-1 min-w-[50px] px-1 py-1.5 rounded-lg text-slate-300 flex flex-col items-center gap-0.5 whitespace-nowrap">
+            <i data-lucide="land-plot" class="w-4 h-4"></i><span>Lote</span>
+          </button>
+          <button data-tool="calle" class="flex-1 min-w-[50px] px-1 py-1.5 rounded-lg text-slate-300 flex flex-col items-center gap-0.5 whitespace-nowrap">
+            <i data-lucide="route" class="w-4 h-4"></i><span>Calle</span>
+          </button>
+          <button data-tool="calibrate" class="flex-1 min-w-[50px] px-1 py-1.5 rounded-lg text-slate-300 flex flex-col items-center gap-0.5 whitespace-nowrap">
+            <i data-lucide="ruler" class="w-4 h-4"></i><span>Calibrar</span>
+          </button>
+          <button data-tool="detect" class="flex-1 min-w-[50px] px-1 py-1.5 rounded-lg text-slate-300 flex flex-col items-center gap-0.5 whitespace-nowrap">
+            <i data-lucide="scan-search" class="w-4 h-4"></i><span>Detectar</span>
           </button>
         </div>
       </div>
@@ -186,8 +186,30 @@
       <div class="relative flex-1 w-full overflow-hidden bg-white">
         <div id="cad-stage" class="absolute inset-0" style="touch-action: none;"></div>
 
+        <!-- Acciones siempre a mano -->
+        <div class="absolute top-2 right-2 flex flex-col gap-2 z-20">
+          <button id="btn-undo" title="Deshacer" class="w-10 h-10 rounded-full glass-panel flex items-center justify-center text-amber-300 active:scale-90 disabled:opacity-40">
+            <i data-lucide="undo-2" class="w-5 h-5"></i>
+          </button>
+          <button id="btn-redo" title="Rehacer" class="w-10 h-10 rounded-full glass-panel flex items-center justify-center text-amber-300 active:scale-90">
+            <i data-lucide="redo-2" class="w-5 h-5"></i>
+          </button>
+          <button id="btn-fit-view" title="Encuadrar" class="w-10 h-10 rounded-full glass-panel flex items-center justify-center text-slate-100 active:scale-90">
+            <i data-lucide="maximize" class="w-5 h-5"></i>
+          </button>
+        </div>
+
         <!-- Aviso de mensura cargada -->
-        <div id="plan-loaded-banner" class="hidden absolute top-2 left-2 glass-panel rounded-lg px-2.5 py-1.5 text-[11px] flex items-center gap-2 z-20">
+        <!-- Pisos -->
+        <div class="absolute top-2 left-2 z-20 flex items-center gap-1 glass-panel rounded-lg p-1">
+          <i data-lucide="layers" class="w-4 h-4 text-sky-400 mx-1"></i>
+          <select id="level-select" class="bg-slate-800 border border-slate-600 rounded px-1.5 py-1 text-xs text-slate-100 max-w-[170px]"></select>
+          <button id="btn-level-add" title="Agregar piso" class="w-7 h-7 rounded bg-emerald-600 text-white flex items-center justify-center"><i data-lucide="plus" class="w-4 h-4"></i></button>
+          <button id="btn-level-rename" title="Renombrar piso" class="w-7 h-7 rounded bg-slate-800 text-slate-200 flex items-center justify-center"><i data-lucide="pencil" class="w-3.5 h-3.5"></i></button>
+          <button id="btn-level-delete" title="Eliminar piso" class="w-7 h-7 rounded bg-slate-800 text-rose-300 flex items-center justify-center disabled:opacity-30"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>
+        </div>
+
+        <div id="plan-loaded-banner" class="hidden absolute top-12 left-2 glass-panel rounded-lg px-2.5 py-1.5 text-[11px] flex items-center gap-2 z-20">
           <i data-lucide="file-check" class="w-4 h-4 text-sky-400"></i>
           <span class="text-slate-200">Mensura: <b id="plan-status" class="text-amber-300"></b></span>
           <button id="btn-remove-plan-bg" class="text-slate-400 hover:text-rose-400" title="Quitar mensura"><i data-lucide="x" class="w-4 h-4"></i></button>
@@ -209,99 +231,13 @@
       </div>
     </div>
 
-    <!-- VISTA: RELEVAMIENTO CON CÁMARA -->
-    <div id="view-camera" class="absolute inset-0 flex flex-col justify-between hidden">
-      <video id="ar-video" autoplay playsinline muted class="absolute inset-0 w-full h-full object-cover"></video>
-      <div class="absolute inset-0 bg-gradient-to-b from-black/60 via-transparent to-black/80 pointer-events-none"></div>
-
-      <!-- Pantalla de activación / error de cámara -->
-      <div id="cam-start-overlay" class="absolute inset-0 z-20 flex flex-col items-center justify-center gap-4 bg-black/85 p-6 text-center">
-        <button id="btn-start-camera" class="flex items-center gap-2 px-5 py-3 rounded-xl bg-emerald-500 text-slate-950 font-bold text-sm shadow-lg active:scale-95">
-          <i data-lucide="camera" class="w-5 h-5"></i>
-          <span>Activar cámara y giroscopio</span>
-        </button>
-        <p id="cam-error" class="text-xs text-slate-300 font-mono max-w-xs">Tocá el botón y aceptá los permisos de cámara y de movimiento.</p>
-      </div>
-
-      <!-- HUD Superior en Cámara -->
-      <div class="relative p-3 flex justify-between items-start pointer-events-auto">
-        <div class="glass-panel rounded-xl p-3 text-xs font-mono space-y-1">
-          <div class="flex items-center gap-2">
-            <span id="cam-status-dot" class="inline-block w-2 h-2 rounded-full bg-rose-500"></span>
-            <span id="cam-status-text" class="text-rose-400 font-bold uppercase tracking-wider text-[11px]">Cámara Inactiva</span>
-          </div>
-          <div class="text-slate-300">Giroscopio: <span id="hud-sensor" class="text-amber-400 font-bold">sin datos</span></div>
-          <div class="text-slate-300">Rumbo del muro: <span id="hud-heading" class="text-white font-bold">0°</span></div>
-          <div class="text-slate-300">Vértices del recorrido: <span id="hud-pts" class="text-white font-bold">0</span></div>
-        </div>
-
-        <div class="flex items-center gap-2">
-          <button id="btn-request-gyro" class="hidden px-3 py-2 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-300 font-medium text-xs">
-            Activar Giroscopio
-          </button>
-          <button id="btn-switch-camera" class="w-10 h-10 rounded-full glass-panel flex items-center justify-center text-white active:scale-95">
-            <i data-lucide="refresh-cw" class="w-5 h-5"></i>
-          </button>
-        </div>
-      </div>
-
-      <!-- Retículo Central -->
-      <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
-        <div class="relative flex items-center justify-center w-28 h-28">
-          <div class="absolute inset-0 rounded-full border border-emerald-400/40 reticle-ring"></div>
-          <div class="w-12 h-12 rounded-full border-2 border-emerald-400 flex items-center justify-center">
-            <div class="w-2 h-2 rounded-full bg-emerald-400"></div>
-          </div>
-          <div class="absolute w-full h-[1px] bg-emerald-400/40"></div>
-          <div class="absolute h-full w-[1px] bg-emerald-400/40"></div>
-          <div class="absolute -bottom-10 px-3 py-1 rounded-lg bg-black/80 border border-emerald-500/50 text-xs font-mono text-emerald-300 font-bold whitespace-nowrap">
-            Tramo actual: <span id="hud-segment-dist">2.50</span> m
-          </div>
-        </div>
-      </div>
-
-      <!-- Controles Inferiores -->
-      <div class="relative p-3 pb-4 flex flex-col gap-2 pointer-events-auto">
-        <div class="flex items-center justify-center gap-3">
-          <button id="btn-dist-dec" class="px-3 py-2 rounded-xl glass-panel text-white font-mono text-xs font-bold active:scale-90">- 0.25m</button>
-          <button id="btn-dist-edit" class="px-5 py-2 rounded-xl bg-emerald-950/90 border border-emerald-500/50 text-emerald-400 font-mono text-xs font-bold text-center min-w-[130px]">
-            <span id="label-curr-dist" class="text-sm">2.50</span> METROS
-          </button>
-          <button id="btn-dist-inc" class="px-3 py-2 rounded-xl glass-panel text-white font-mono text-xs font-bold active:scale-90">+ 0.25m</button>
-        </div>
-
-        <!-- Giro manual, ajuste a 90° y deshacer -->
-        <div class="grid grid-cols-4 gap-2">
-          <button id="btn-turn-left" class="py-2 rounded-xl glass-panel text-white font-mono text-xs font-bold active:scale-90">&#8630; 90°</button>
-          <button id="btn-snap-90" class="py-2 rounded-xl bg-emerald-950/90 border border-emerald-500/50 text-emerald-400 font-mono text-[11px] font-bold active:scale-90">Escuadra: SÍ</button>
-          <button id="btn-turn-right" class="py-2 rounded-xl glass-panel text-white font-mono text-xs font-bold active:scale-90">90° &#8631;</button>
-          <button id="btn-undo-ar" class="py-2 rounded-xl glass-panel text-amber-300 font-mono text-xs font-bold active:scale-90">Deshacer</button>
-        </div>
-
-        <div class="grid grid-cols-3 gap-2">
-          <button id="btn-new-run" class="flex flex-col items-center justify-center py-2.5 rounded-xl bg-slate-500/20 border border-slate-400/30 text-slate-200 font-semibold text-xs active:scale-95">
-            <i data-lucide="corner-down-right" class="w-5 h-5 mb-0.5"></i>
-            <span>Nuevo recorrido</span>
-          </button>
-          <button id="btn-mark-corner" class="flex flex-col items-center justify-center py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs shadow-lg active:scale-95">
-            <i data-lucide="map-pin" class="w-5 h-5 mb-0.5"></i>
-            <span>Fijar Vértice</span>
-          </button>
-          <button id="btn-close-polygon" class="flex flex-col items-center justify-center py-2.5 rounded-xl bg-sky-500/20 border border-sky-500/30 text-sky-300 font-semibold text-xs active:scale-95">
-            <i data-lucide="check-circle" class="w-5 h-5 mb-0.5"></i>
-            <span>Cerrar Planta</span>
-          </button>
-        </div>
-      </div>
-    </div>
-
     <!-- VISTA: MODELO 3D -->
     <div id="view-3d" class="absolute inset-0 bg-slate-200 hidden">
       <div id="three-container" class="w-full h-full"></div>
 
       <div class="absolute top-3 left-3 glass-panel rounded-xl p-3 text-xs font-mono space-y-2 z-20">
         <div class="flex items-center justify-between gap-4">
-          <label class="text-slate-300 text-[11px]">Altura muros (m)</label>
+          <label id="label-level-height" class="text-slate-300 text-[11px]">Altura del piso (m)</label>
           <input type="number" id="input-wall-height" value="2.60" step="0.1" min="1" max="10" class="w-16 bg-slate-800 border border-slate-700 rounded px-2 py-0.5 text-right font-bold text-emerald-400 text-xs">
         </div>
         <div class="flex items-center justify-between gap-4">
@@ -309,6 +245,10 @@
           <input type="number" id="input-wall-thickness" value="0.15" step="0.05" min="0.05" max="1.0" class="w-16 bg-slate-800 border border-slate-700 rounded px-2 py-0.5 text-right font-bold text-sky-400 text-xs">
         </div>
         <div class="flex items-center justify-between gap-2 border-t border-slate-700 pt-2">
+          <select id="select-levels-3d" class="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200">
+            <option value="all">Todos los pisos</option>
+            <option value="upto">Hasta el piso actual</option>
+          </select>
           <select id="select-render-mode" class="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200">
             <option value="solid">Sólido</option>
             <option value="wireframe">Alambre</option>
@@ -318,6 +258,7 @@
       </div>
 
       <div class="absolute bottom-3 left-3 glass-panel px-3 py-2 rounded-xl text-xs font-mono text-slate-300 pointer-events-none">
+        Pisos: <span id="hud-3d-levels" class="text-purple-400 font-bold">1</span> &middot;
         Muros: <span id="hud-3d-walls" class="text-sky-400 font-bold">0</span> &middot;
         Aberturas: <span id="hud-3d-openings" class="text-amber-400 font-bold">0</span> &middot;
         Objetos: <span id="hud-3d-objects" class="text-emerald-400 font-bold">0</span>
@@ -326,14 +267,10 @@
   </main>
 
   <!-- PANEL INFERIOR DE NAVEGACIÓN POR PESTAÑAS -->
-  <nav class="h-16 bg-slate-900 border-t border-slate-800 grid grid-cols-3 z-30 flex-shrink-0">
+  <nav class="h-16 bg-slate-900 border-t border-slate-800 grid grid-cols-2 z-30 flex-shrink-0">
     <button id="tab-cad" class="flex flex-col items-center justify-center gap-1 text-emerald-400 font-medium text-[11px]">
       <i data-lucide="drafting-compass" class="w-5 h-5"></i>
       <span>Plano 2D</span>
-    </button>
-    <button id="tab-cam" class="flex flex-col items-center justify-center gap-1 text-slate-400 font-medium text-[11px]">
-      <i data-lucide="camera" class="w-5 h-5"></i>
-      <span>Relevamiento</span>
     </button>
     <button id="tab-3d" class="flex flex-col items-center justify-center gap-1 text-slate-400 font-medium text-[11px]">
       <i data-lucide="box" class="w-5 h-5"></i>
@@ -346,7 +283,7 @@
   <script src="js/library.js"></script>
   <script src="js/editor2d.js"></script>
   <script src="js/view3d.js"></script>
-  <script src="js/capture.js"></script>
+    <script src="js/detect.js"></script>
   <script src="js/exporters.js"></script>
   <script src="js/app.js"></script>
 </body>

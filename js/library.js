@@ -59,6 +59,10 @@
     { type: 'columna', name: 'Columna', cat: 'Otros', w: 0.3, d: 0.3, h: 2.6, sym: [BOX, L(0, 0, 1, 1), L(1, 0, 0, 1)] }
   ];
 
+  // Estos objetos se ubican libres; el resto se apoya y se orienta contra el muro cercano
+  const FREE_STANDING = ['mesa', 'silla', 'escalera', 'auto', 'columna'];
+  OBJECT_TYPES.forEach(o => { o.anchor = !FREE_STANDING.includes(o.type); });
+
   SA.library = {
     ROOM_TYPES,
     OBJECT_TYPES,
