@@ -141,7 +141,7 @@
     }));
     // Lotes (cerrados) y ejes de calles
     M.project.levels.forEach((level, index) => level.shapes.forEach(sh => {
-      const pts = sh.points;
+      const pts = M.shapePath(sh); // los lados curvos ya vienen divididos en tramos cortos
       const count = sh.kind === 'lote' ? pts.length : pts.length - 1;
       for (let i = 0; i < count; i++) {
         const a = pts[i], b = pts[(i + 1) % pts.length];

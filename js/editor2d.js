@@ -300,11 +300,6 @@
   E._tap = handleTap; // punto de entrada para pruebas automáticas
 
   // ---------- lotes y calles ----------
-  const polyArea = (pts) => Math.abs(pts.reduce((sum, p, i) => {
-    const q = pts[(i + 1) % pts.length];
-    return sum + p.x * q.y - q.x * p.y;
-  }, 0)) / 2;
-
   function finishDraft() {
     const d = draft;
     draft = null;
@@ -338,9 +333,10 @@
 
   function renderShapes(L, metric) {
     M.level.shapes.forEach(sh => {
+      M.normalizeArcs(sh);
       const isSel = selection && selection.kind === 'shape' && selection.id === sh.id;
-      const pts = sh.points;
-      const flat = pts.flatMap(p => [p.x, p.y]);
+      const path = M.shapePath(sh);
+      const flat = path.flatMap(p => [p.x, p.y]);
       let node;
       if (sh.kind === 'calle') {
         node = new Konva.Line({
@@ -348,14 +344,14 @@
           lineCap: 'butt', lineJoin: 'round', hitStrokeWidth: Math.max(sh.width, px(20))
         });
         L.add(node);
-        // Nombre sobre el tramo más largo
-        let best = 0;
-        for (let i = 1; i < pts.length - 1; i++) {
-          if (Math.hypot(pts[i + 1].x - pts[i].x, pts[i + 1].y - pts[i].y) > Math.hypot(pts[best + 1].x - pts[best].x, pts[best + 1].y - pts[best].y)) best = i;
+        // Nombre sobre el lado más largo
+        let best = M.edgeInfo(sh, 0);
+        for (let i = 1; i < M.edgeCount(sh); i++) {
+          const info = M.edgeInfo(sh, i);
+          if (info.length > best.length) best = info;
         }
-        const a = pts[best], b = pts[best + 1];
         L.add(haloText({
-          x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, rotation: uprightDeg(b.x - a.x, b.y - a.y),
+          x: best.mid.x, y: best.mid.y, rotation: uprightDeg(best.b.x - best.a.x, best.b.y - best.a.y),
           text: sh.name, fontSize: px(15), fontStyle: 'bold', fill: '#1e293b'
         }));
       } else {
@@ -364,25 +360,25 @@
           fill: 'rgba(220, 38, 38, 0.07)', hitStrokeWidth: px(16)
         });
         L.add(node);
-        // Medida de cada lado, por fuera del lote
+        // Medida de cada lado por fuera del lote; en los curvos, desarrollo y radio
         if (metric) {
-          pts.forEach((a, i) => {
-            const b = pts[(i + 1) % pts.length];
-            const len = Math.hypot(b.x - a.x, b.y - a.y);
-            if (len * zoom() < 40) return;
-            const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-            let nx = -(b.y - a.y) / len, ny = (b.x - a.x) / len;
-            if (M.pointInPoly({ x: mid.x + nx * px(4), y: mid.y + ny * px(4) }, pts)) { nx = -nx; ny = -ny; }
+          for (let i = 0; i < M.edgeCount(sh); i++) {
+            const info = M.edgeInfo(sh, i);
+            if (info.length * zoom() < 40) continue;
+            let nx = info.nx, ny = info.ny;
+            if (M.pointInPoly({ x: info.mid.x + nx * px(4), y: info.mid.y + ny * px(4) }, path)) { nx = -nx; ny = -ny; }
+            const text = info.radius ? `${fmt(info.length)} m\nR ${fmt(info.radius)}` : `${fmt(info.length)} m`;
             L.add(haloText({
-              x: mid.x + nx * px(12), y: mid.y + ny * px(12), rotation: uprightDeg(b.x - a.x, b.y - a.y),
-              text: `${fmt(len)} m`, fontSize: px(12), fontStyle: 'bold', fill: '#b91c1c'
+              x: info.mid.x + nx * px(info.radius ? 18 : 12), y: info.mid.y + ny * px(info.radius ? 18 : 12),
+              rotation: uprightDeg(info.b.x - info.a.x, info.b.y - info.a.y), align: 'center',
+              text, fontSize: px(12), fontStyle: 'bold', fill: '#b91c1c'
             }));
-          });
+          }
         }
-        const c = pts.reduce((acc, p) => ({ x: acc.x + p.x / pts.length, y: acc.y + p.y / pts.length }), { x: 0, y: 0 });
+        const c = path.reduce((acc, p) => ({ x: acc.x + p.x / path.length, y: acc.y + p.y / path.length }), { x: 0, y: 0 });
         L.add(haloText({
           x: c.x, y: c.y, align: 'center', lineHeight: 1.3,
-          text: metric ? `${sh.name}\n${fmt(polyArea(pts))} m²` : sh.name,
+          text: metric ? `${sh.name}\n${fmt(M.shapeArea(sh))} m²` : sh.name,
           fontSize: px(14), fontStyle: 'bold', fill: '#991b1b'
         }));
       }
@@ -900,20 +896,66 @@
     }
     if (tool === 'select' && selection && selection.kind === 'shape') {
       const sh = M.level.shapes.find(s => s.id === selection.id);
-      if (sh) sh.points.forEach(p => {
-        const c = new Konva.Circle({
-          x: p.x, y: p.y, radius: px(7), fill: '#ffffff', stroke: COLORS.lot,
-          strokeWidth: px(2.5), hitStrokeWidth: px(24), draggable: true
+      if (sh) {
+        M.normalizeArcs(sh);
+        // Rombo en el medio de cada lado: arrastrarlo curva el lado; doble toque agrega un vértice
+        for (let i = 0; i < M.edgeCount(sh); i++) {
+          const info = M.edgeInfo(sh, i);
+          const isSeg = selection.seg === i;
+          const m = new Konva.Rect({
+            x: info.mid.x, y: info.mid.y, width: px(13), height: px(13), offsetX: px(6.5), offsetY: px(6.5), rotation: 45,
+            fill: isSeg ? COLORS.selected : '#fbbf24', stroke: '#92400e', strokeWidth: px(1.5), hitStrokeWidth: px(26), draggable: true
+          });
+          m.on('dragmove', () => {
+            const cur = M.edgeInfo(sh, i);
+            const p = m.position();
+            const cx = (cur.a.x + cur.b.x) / 2, cy = (cur.a.y + cur.b.y) / 2;
+            let h = (p.x - cx) * cur.nx + (p.y - cy) * cur.ny;
+            if (Math.abs(h) * zoom() < 6) h = 0; // cerca de la cuerda vuelve a ser recto
+            sh.arcs[i] = Math.max(-cur.chord, Math.min(cur.chord, h));
+            renderMain();
+          });
+          m.on('dragend', () => {
+            selection = { kind: 'shape', id: sh.id, seg: i };
+            setTimeout(() => M.commit(), 0);
+          });
+          m.on('click tap', (e) => {
+            e.cancelBubble = true;
+            select({ kind: 'shape', id: sh.id, seg: i });
+          });
+          m.on('dblclick dbltap', (e) => {
+            e.cancelBubble = true;
+            M.insertShapeVertex(sh, i);
+            selection = { kind: 'shape', id: sh.id };
+            M.commit();
+          });
+          L.add(m);
+        }
+        // Vértices: arrastrar los mueve; doble toque los borra
+        sh.points.forEach((p, idx) => {
+          const c = new Konva.Circle({
+            x: p.x, y: p.y, radius: px(7), fill: '#ffffff', stroke: COLORS.lot,
+            strokeWidth: px(2.5), hitStrokeWidth: px(24), draggable: true
+          });
+          c.on('dragmove', () => {
+            const s = snap(c.position(), null, null, p);
+            p.x = s.x; p.y = s.y;
+            c.position({ x: s.x, y: s.y });
+            renderMain();
+          });
+          c.on('dragend', () => setTimeout(() => M.commit(), 0));
+          c.on('dblclick dbltap', (e) => {
+            e.cancelBubble = true;
+            if (M.removeShapeVertex(sh, idx)) {
+              selection = { kind: 'shape', id: sh.id };
+              M.commit();
+            } else {
+              flashHint(sh.kind === 'lote' ? 'Un lote necesita al menos 3 vértices.' : 'Una calle necesita al menos 2 puntos.');
+            }
+          });
+          L.add(c);
         });
-        c.on('dragmove', () => {
-          const s = snap(c.position(), null, null, p);
-          p.x = s.x; p.y = s.y;
-          c.position({ x: s.x, y: s.y });
-          renderMain();
-        });
-        c.on('dragend', () => setTimeout(() => M.commit(), 0));
-        L.add(c);
-      });
+      }
     } else if (chainLast && M.node(chainLast)) {
       const n = M.node(chainLast);
       L.add(new Konva.Circle({ x: n.x, y: n.y, radius: px(6), fill: COLORS.guide, listening: false }));
@@ -1021,14 +1063,38 @@
 
     let textApply = null; // (key, texto) => cambios en el modelo
 
-    if (selection.kind === 'shape') {
+    if (selection.kind === 'shape' && selection.seg !== undefined) {
+      const sh = P.shapes.find(s => s.id === selection.id);
+      const i = selection.seg;
+      if (i >= M.edgeCount(sh)) { selection = { kind: 'shape', id: sh.id }; updatePanel(); return; }
+      M.normalizeArcs(sh);
+      const info = M.edgeInfo(sh, i);
+      // Hacia afuera del lote por defecto (como una ochava o un frente curvo)
+      let outward = 1;
+      if (sh.kind === 'lote' && M.pointInPoly({ x: (info.a.x + info.b.x) / 2 + info.nx * 0.01, y: (info.a.y + info.b.y) / 2 + info.ny * 0.01 }, M.shapePath(Object.assign({}, sh, { arcs: sh.arcs.map(() => 0) })))) outward = -1;
+      html = `<b class="text-sky-400">Lado ${i + 1}</b>` +
+        (metric ? `<span class="text-slate-300">cuerda ${fmt(info.chord)} m${info.radius ? ` · desarrollo ${fmt(info.length)} m` : ''}</span>` : '') +
+        (metric ? field('Radio (m)', 'radius', info.radius ? info.radius.toFixed(2) : '', 0.5) : '') +
+        button(info.radius ? 'Invertir curva' : 'Curvar', 'curve') +
+        (info.radius ? button('Recto', 'straight') : '') +
+        button('Agregar vértice', 'vertex') +
+        button('Listo', 'back', 'bg-emerald-500/20 border-emerald-500/40 text-emerald-200');
+      apply = (key, v) => {
+        if (key === 'radius' && v > 0) sh.arcs[i] = M.sagittaForRadius(info.chord, v, Math.sign(info.h) || outward);
+      };
+      actions.curve = () => { sh.arcs[i] = info.h ? -info.h : M.sagittaForRadius(info.chord, info.chord, outward); };
+      actions.straight = () => { sh.arcs[i] = 0; };
+      actions.vertex = () => { M.insertShapeVertex(sh, i); selection = { kind: 'shape', id: sh.id }; };
+      actions.back = () => { selection = { kind: 'shape', id: sh.id }; };
+    } else if (selection.kind === 'shape') {
       const sh = P.shapes.find(s => s.id === selection.id);
       const isLote = sh.kind === 'lote';
       html = `<b class="text-sky-400">${isLote ? 'Lote' : 'Calle'}</b>
         <input data-text="name" type="text" value="${sh.name.replace(/"/g, '&quot;')}"
           class="w-32 bg-slate-800 border border-slate-600 rounded px-2 py-1 text-slate-100">` +
-        (isLote && metric ? `<span class="text-emerald-400 font-bold">${fmt(polyArea(sh.points))} m²</span>` : '') +
-        (!isLote && metric ? field('Ancho (m)', 'width', sh.width.toFixed(2), 0.5) : '') + DELETE_BTN;
+        (isLote && metric ? `<span class="text-emerald-400 font-bold">${fmt(M.shapeArea(sh))} m²</span>` : '') +
+        (!isLote && metric ? field('Ancho (m)', 'width', sh.width.toFixed(2), 0.5) : '') + DELETE_BTN +
+        `<span class="w-full text-[10px] text-slate-400">Arrastrá un rombo amarillo para curvar ese lado (tocalo para cargar el radio). Doble toque en un rombo agrega un vértice; doble toque en un vértice lo borra.</span>`;
       apply = (key, v) => { if (key === 'width' && v > 0) sh.width = v; };
       textApply = (key, value) => { if (value) sh.name = value; };
     } else if (selection.kind === 'wall') {
@@ -1120,7 +1186,7 @@
     const add = (x, y) => { minX = Math.min(minX, x); maxX = Math.max(maxX, x); minY = Math.min(minY, y); maxY = Math.max(maxY, y); };
     for (const id in P.nodes) add(P.nodes[id].x, P.nodes[id].y);
     P.objects.forEach(o => { const r = Math.max(o.w, o.d) / 2; add(o.x - r, o.y - r); add(o.x + r, o.y + r); });
-    P.shapes.forEach(sh => sh.points.forEach(p => add(p.x, p.y)));
+    P.shapes.forEach(sh => M.shapePath(sh).forEach(p => add(p.x, p.y)));
     if (P.plan && M.planImage) {
       const hw = (M.planImage.width * P.plan.mPerPx) / 2, hh = (M.planImage.height * P.plan.mPerPx) / 2;
       add(P.plan.x - hw, P.plan.y - hh); add(P.plan.x + hw, P.plan.y + hh);

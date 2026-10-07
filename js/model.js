@@ -247,6 +247,7 @@
       L.shapes.forEach(sh => {
         sh.points.forEach(p => { p.x *= k; p.y *= k; });
         if (sh.width) sh.width *= k;
+        if (sh.arcs) sh.arcs = sh.arcs.map(h => h * k);
       });
     }
   };
@@ -300,6 +301,118 @@
     if (index < 0 || index >= M.project.levels.length) return;
     M.project.active = index;
     M._notify();
+  };
+
+  // ---------- lotes y calles: lados rectos o en arco ----------
+  // Cada lado puede ser un arco de circunferencia. arcs[i] es la flecha (en metros) del lado que va
+  // del vértice i al siguiente: la distancia del punto medio del arco a la cuerda, con signo según
+  // hacia qué lado se curva. 0 = lado recto.
+  M.edgeCount = (sh) => (sh.kind === 'lote' ? sh.points.length : sh.points.length - 1);
+
+  M.normalizeArcs = (sh) => {
+    const n = M.edgeCount(sh);
+    sh.arcs = Array.from({ length: n }, (_, i) => (sh.arcs && sh.arcs[i]) || 0);
+    return sh.arcs;
+  };
+
+  // Geometría de un lado: cuerda, punto medio del arco, radio, desarrollo y puntos para dibujarlo
+  M.edgeInfo = (sh, i) => {
+    const a = sh.points[i], b = sh.points[(i + 1) % sh.points.length];
+    const h = (sh.arcs && sh.arcs[i]) || 0;
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const chord = Math.hypot(dx, dy) || 1e-9;
+    const nx = -dy / chord, ny = dx / chord;
+    const mid = { x: (a.x + b.x) / 2 + nx * h, y: (a.y + b.y) / 2 + ny * h };
+    const info = { a, b, h, chord, nx, ny, mid, length: chord, radius: null, pts: [a, b] };
+    if (Math.abs(h) > chord * 1e-6) {
+      const s = Math.sign(h);
+      const R = (chord * chord / 4 + h * h) / (2 * Math.abs(h));
+      const ox = (a.x + b.x) / 2 + nx * (h - s * R), oy = (a.y + b.y) / 2 + ny * (h - s * R);
+      const TWO = 2 * Math.PI;
+      const a0 = Math.atan2(a.y - oy, a.x - ox);
+      const toB = ((Math.atan2(b.y - oy, b.x - ox) - a0) % TWO + TWO) % TWO;
+      const toMid = ((Math.atan2(mid.y - oy, mid.x - ox) - a0) % TWO + TWO) % TWO;
+      const sweep = toMid <= toB ? toB : toB - TWO; // el sentido que pasa por el punto medio
+      const n = Math.max(8, Math.min(72, Math.ceil(Math.abs(sweep) * 14)));
+      info.pts = [];
+      for (let k = 0; k <= n; k++) {
+        const t = a0 + (sweep * k) / n;
+        info.pts.push({ x: ox + R * Math.cos(t), y: oy + R * Math.sin(t) });
+      }
+      info.pts[0] = a;
+      info.pts[n] = b;
+      info.radius = R;
+      info.sweep = sweep;
+      info.length = R * Math.abs(sweep);
+    }
+    return info;
+  };
+
+  // Contorno completo con los arcos convertidos en tramos cortos
+  M.shapePath = (sh) => {
+    const out = [];
+    for (let i = 0; i < M.edgeCount(sh); i++) {
+      const pts = M.edgeInfo(sh, i).pts;
+      out.push(...(i ? pts.slice(1) : pts));
+    }
+    if (sh.kind === 'lote' && out.length > 1) out.pop(); // el último punto repite el primero
+    return out;
+  };
+
+  const signedArea = (pts) => pts.reduce((sum, p, i) => {
+    const q = pts[(i + 1) % pts.length];
+    return sum + p.x * q.y - q.x * p.y;
+  }, 0) / 2;
+
+  // Superficie exacta: polígono de vértices + segmentos circulares de los lados curvos
+  M.shapeArea = (sh) => {
+    let area = signedArea(sh.points);
+    for (let i = 0; i < M.edgeCount(sh); i++) {
+      const info = M.edgeInfo(sh, i);
+      if (!info.radius) continue;
+      const t = Math.abs(info.sweep);
+      const segment = (info.radius * info.radius / 2) * (t - Math.sin(t));
+      // El sentido del arco respecto de la cuerda dice si suma o resta superficie
+      area += Math.sign(signedArea([...info.pts, info.a])) * segment;
+    }
+    return Math.abs(area);
+  };
+
+  // Flecha que corresponde a un radio dado (arco menor), con el signo indicado
+  M.sagittaForRadius = (chord, radius, sign) => {
+    if (radius <= chord / 2) return (sign || 1) * chord / 2; // semicírculo: el radio mínimo posible
+    return (sign || 1) * (radius - Math.sqrt(radius * radius - (chord * chord) / 4));
+  };
+
+  // Agrega un vértice en el medio de un lado (si es curvo, cada mitad conserva el mismo arco)
+  M.insertShapeVertex = (sh, i) => {
+    M.normalizeArcs(sh);
+    const info = M.edgeInfo(sh, i);
+    let half = 0;
+    if (info.radius) half = Math.sign(info.h) * info.radius * (1 - Math.cos(Math.abs(info.sweep) / 4));
+    sh.points.splice(i + 1, 0, { x: info.mid.x, y: info.mid.y });
+    sh.arcs.splice(i, 1, half, half);
+  };
+
+  // Quita un vértice; el lado que queda al unir los dos vecinos pasa a ser recto
+  M.removeShapeVertex = (sh, j) => {
+    const min = sh.kind === 'lote' ? 3 : 2;
+    if (sh.points.length <= min) return false;
+    M.normalizeArcs(sh);
+    const n = sh.points.length;
+    if (sh.kind === 'lote') {
+      sh.arcs[(j - 1 + n) % n] = 0;
+      sh.arcs.splice(j, 1);
+    } else if (j === 0) {
+      sh.arcs.splice(0, 1);
+    } else if (j === n - 1) {
+      sh.arcs.splice(j - 1, 1);
+    } else {
+      sh.arcs[j - 1] = 0;
+      sh.arcs.splice(j, 1);
+    }
+    sh.points.splice(j, 1);
+    return true;
   };
 
   // ---------- ambientes: caras cerradas del grafo de muros ----------
