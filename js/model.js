@@ -43,6 +43,41 @@
     };
   }
 
+  // Las imágenes de mensura pesan varios MB: se guardan aparte (IndexedDB) y solo cuando cambian,
+  // en vez de reescribirlas en cada acción junto con el proyecto.
+  const imageStore = (() => {
+    let dbPromise = null;
+    const open = () => {
+      if (!dbPromise) {
+        dbPromise = new Promise((resolve) => {
+          try {
+            const req = indexedDB.open('scanarch', 1);
+            req.onupgradeneeded = () => req.result.createObjectStore('images');
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => resolve(null);
+          } catch (e) { resolve(null); }
+        });
+      }
+      return dbPromise;
+    };
+    const run = (mode, fn) => open().then(db => new Promise((resolve) => {
+      if (!db) { resolve(null); return; }
+      try {
+        const tx = db.transaction('images', mode);
+        const req = fn(tx.objectStore('images'));
+        tx.oncomplete = () => resolve(req ? req.result : null);
+        tx.onerror = tx.onabort = () => resolve(null);
+      } catch (e) { resolve(null); }
+    }));
+    return {
+      put: (id, src) => run('readwrite', s => s.put(src, id)),
+      get: (id) => run('readonly', s => s.get(id)),
+      remove: (id) => run('readwrite', s => s.delete(id)),
+      // Deja guardadas exactamente las imágenes indicadas
+      replaceAll: (images) => run('readwrite', s => { s.clear(); Object.keys(images).forEach(id => s.put(images[id], id)); })
+    };
+  })();
+
   const M = {
     project: emptyProject(),
     _planImages: {}, // { levelId: {img, src} } imágenes de mensura (fuera del historial)
@@ -60,8 +95,13 @@
     get: () => (M._planImages[M.level.id] || {}).src || null
   });
   M.setPlanImage = (img, src) => {
-    if (img) M._planImages[M.level.id] = { img, src };
-    else delete M._planImages[M.level.id];
+    if (img) {
+      M._planImages[M.level.id] = { img, src };
+      imageStore.put(M.level.id, src);
+    } else {
+      delete M._planImages[M.level.id];
+      imageStore.remove(M.level.id);
+    }
   };
 
   // Ejecuta fn con otro piso como activo (para leer varios pisos sin cambiar la vista)
@@ -294,6 +334,7 @@
     const P = M.project;
     if (P.levels.length <= 1) return false;
     delete M._planImages[P.levels[index].id];
+    imageStore.remove(P.levels[index].id);
     P.levels.splice(index, 1);
     P.active = Math.min(P.active, P.levels.length - 1);
     M.commit();
@@ -386,6 +427,22 @@
       area += Math.sign(signedArea([...info.pts, info.a])) * segment;
     }
     return Math.abs(area);
+  };
+
+  // Flecha del arco que une los extremos del lado y pasa por un punto dado (el dedo o el mouse):
+  // así el lado "sigue" al punto del que se lo agarra.
+  M.sagittaThrough = (sh, i, pt) => {
+    const info = M.edgeInfo(sh, i);
+    const cx = (info.a.x + info.b.x) / 2, cy = (info.a.y + info.b.y) / 2;
+    const tx = (info.b.x - info.a.x) / info.chord, ty = (info.b.y - info.a.y) / info.chord;
+    const u = (pt.x - cx) * tx + (pt.y - cy) * ty;          // a lo largo de la cuerda
+    const v = (pt.x - cx) * info.nx + (pt.y - cy) * info.ny; // perpendicular
+    const half = info.chord / 2;
+    if (Math.abs(v) < 1e-9) return 0;
+    if (Math.abs(u) >= half * 0.98) return v; // agarrado junto a un extremo: uso el desplazamiento directo
+    const k = (u * u + v * v - half * half) / (2 * v);      // centro del círculo sobre la mediatriz
+    const h = k + Math.sign(v) * Math.sqrt(half * half + k * k);
+    return Math.max(-info.chord, Math.min(info.chord, h));
   };
 
   // Flecha que corresponde a un radio dado (arco menor), con el signo indicado
@@ -515,12 +572,8 @@
   };
 
   function autosave() {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(M.serialize(true)));
-    } catch (e) {
-      // Las imágenes de mensura pueden superar el cupo del navegador: guardo sin ellas
-      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(M.serialize(false))); } catch (e2) { /* sin almacenamiento */ }
-    }
+    // Solo el proyecto (liviano); las imágenes de mensura van aparte, ver imageStore
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(M.serialize(false))); } catch (e) { /* sin almacenamiento */ }
   }
 
   // Registrar un cambio terminado: historial + autoguardado + refresco de vistas
@@ -603,15 +656,29 @@
     M.project = project;
     M._history = [];
     M._future = [];
+    const kept = {};
+    Object.keys(M._planImages).forEach(id => { kept[id] = M._planImages[id].src; });
+    imageStore.replaceAll(kept);
     M.commit();
   };
 
   M.reset = () => M.load(emptyProject());
 
-  M.restoreAutosave = () => {
+  M.restoreAutosave = async () => {
     let data = null;
     try { data = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null'); } catch (e) { data = null; }
-    return M.load(M.isProjectData(data) ? data : emptyProject());
+    if (!M.isProjectData(data)) return M.load(emptyProject());
+    // Recupero las imágenes de mensura de cada piso (los autoguardados viejos las traían adentro)
+    if (data.version === 2) {
+      data.planImages = data.planImages || {};
+      for (const level of data.levels) {
+        if (level.plan && !data.planImages[level.id]) {
+          const src = await imageStore.get(level.id);
+          if (src) data.planImages[level.id] = src;
+        }
+      }
+    }
+    return M.load(data);
   };
 
   SA.model = M;

@@ -263,7 +263,7 @@
     if (tool === 'lote' || tool === 'calle') {
       const last = draft && draft.points.length ? draft.points[draft.points.length - 1] : null;
       const s = snap(pos, null, last);
-      if (!draft) draft = { kind: tool, points: [] };
+      if (!draft) { draft = { kind: tool, points: [] }; selection = null; }
       const pts = draft.points;
       const screenDist = (p) => Math.hypot(s.x - p.x, s.y - p.y) * zoom();
       // Tocar el primer vértice cierra el lote; tocar de nuevo el último termina
@@ -401,6 +401,7 @@
       node.on('click tap', (e) => {
         if (tool !== 'select') return;
         e.cancelBubble = true;
+        if (shapeScreenSize(sh) < 110) zoomToShape(sh);
         select({ kind: 'shape', id: sh.id });
       });
     });
@@ -547,6 +548,9 @@
     let text = HINTS[tool];
     if (tool === 'wall' && chainLast) text = 'Tocá la siguiente esquina. "Terminar muro" corta el tramo.';
     if (tool === 'calibrate' && calibStart) text = 'Ahora tocá el otro extremo de la cota.';
+    if (selection && selection.kind === 'shape' && !(draft && draft.points.length)) {
+      text = 'Agarrá cualquier lado y tirá para curvarlo. Tocá un lado: radio y vértices. Tocá un vértice para quitarlo.';
+    }
     if (draft && draft.points.length) {
       text = draft.kind === 'lote'
         ? 'Tocá el siguiente vértice. Tocá el primero (o "Cerrar lote") para terminar.'
@@ -894,6 +898,118 @@
     return g;
   }
 
+  const SHAPE_TOOLS = ['select', 'lote', 'calle'];
+
+  // Etiqueta flotante junto al dedo mientras se curva un lado
+  function showDragTag(pt, text) {
+    const L = layers.ui;
+    L.destroyChildren();
+    if (text) {
+      const t = new Konva.Text({ x: pt.x, y: pt.y - px(58), text, fontSize: px(14), fontStyle: 'bold', fill: '#b45309' });
+      t.offsetX(t.width() / 2);
+      L.add(new Konva.Rect({ x: pt.x - t.width() / 2 - px(6), y: pt.y - px(62), width: t.width() + px(12), height: t.height() + px(8), fill: '#fffbeb', stroke: COLORS.guide, strokeWidth: px(1), cornerRadius: px(4) }));
+      L.add(t);
+    }
+    L.batchDraw();
+  }
+
+  function renderShapeHandles(L, sh) {
+    M.normalizeArcs(sh);
+    const n = M.edgeCount(sh);
+    const infos = [];
+    for (let i = 0; i < n; i++) infos.push(M.edgeInfo(sh, i));
+    const screenLen = (info) => info.length * zoom();
+    const interactive = (handler) => (e) => {
+      if (tool !== 'select') return; // con Lote/Calle los toques siguen dibujando; solo se arrastra
+      e.cancelBubble = true;
+      handler();
+    };
+
+    // 1) Cada lado completo es su propia manija: se agarra en cualquier punto y se tira para curvarlo
+    infos.forEach((info, i) => {
+      const isSeg = selection.seg === i;
+      const edge = new Konva.Line({
+        points: info.pts.flatMap(p => [p.x, p.y]), lineCap: 'round', lineJoin: 'round', draggable: true,
+        stroke: isSeg ? COLORS.selected : 'rgba(0, 0, 0, 0)', strokeWidth: px(5),
+        hitStrokeWidth: px(Math.max(12, Math.min(30, screenLen(info) * 0.6)))
+      });
+      edge.on('dragstart', () => { selection = { kind: 'shape', id: sh.id, seg: i }; });
+      edge.on('dragmove', () => {
+        const p = stage.getRelativePointerPosition();
+        if (!p) return;
+        let h = M.sagittaThrough(sh, i, p);
+        if (Math.abs(h) * zoom() < 7) h = 0; // cerca de la recta vuelve a ser recto
+        sh.arcs[i] = h;
+        const cur = M.edgeInfo(sh, i);
+        edge.position({ x: 0, y: 0 });
+        edge.points(cur.pts.flatMap(q => [q.x, q.y]));
+        edge.stroke(COLORS.selected);
+        marks[i].position(cur.mid);
+        renderMain();
+        showDragTag(p, !M.isMetric() ? '' : cur.radius ? `R ${fmt(cur.radius)} m · ${fmt(cur.length)} m` : `recto · ${fmt(cur.length)} m`);
+      });
+      edge.on('dragend', () => { layers.ui.destroyChildren(); setTimeout(() => M.commit(), 0); });
+      edge.on('click tap', interactive(() => select({ kind: 'shape', id: sh.id, seg: i })));
+      L.add(edge);
+    });
+
+    // 2) Rombo: solo marca el medio de cada lado (la manija es el lado entero)
+    const marks = infos.map((info, i) => {
+      const size = Math.max(6, Math.min(12, screenLen(info) * 0.22));
+      const m = new Konva.Rect({
+        x: info.mid.x, y: info.mid.y, width: px(size), height: px(size), offsetX: px(size / 2), offsetY: px(size / 2), rotation: 45,
+        fill: selection.seg === i ? COLORS.selected : '#fbbf24', stroke: '#92400e', strokeWidth: px(1.2), listening: false
+      });
+      L.add(m);
+      return m;
+    });
+
+    // 3) Vértices, por encima. Su zona sensible se achica en lotes chicos para no tapar los lados.
+    sh.points.forEach((p, idx) => {
+      const adjacent = [];
+      if (sh.kind === 'lote' || idx > 0) adjacent.push(infos[(idx - 1 + n) % n]);
+      if (sh.kind === 'lote' || idx < sh.points.length - 1) adjacent.push(infos[idx % n]);
+      const shortest = Math.min(...adjacent.map(screenLen));
+      const reach = Math.max(7, Math.min(20, shortest * 0.28)); // radio sensible en px
+      const radius = Math.min(7, reach);
+      const isVertex = selection.vertex === idx;
+      const c = new Konva.Circle({
+        x: p.x, y: p.y, radius: px(radius), fill: isVertex ? COLORS.selected : '#ffffff', stroke: COLORS.lot,
+        strokeWidth: px(2.5), hitStrokeWidth: px(Math.max(0, (reach - radius) * 2)), draggable: true
+      });
+      c.on('dragmove', () => {
+        const s = snap(c.position(), null, null, p);
+        p.x = s.x; p.y = s.y;
+        c.position({ x: s.x, y: s.y });
+        infos.forEach((_, i) => {
+          const cur = M.edgeInfo(sh, i);
+          marks[i].position(cur.mid);
+        });
+        renderMain();
+      });
+      c.on('dragend', () => setTimeout(() => M.commit(), 0));
+      c.on('click tap', interactive(() => select({ kind: 'shape', id: sh.id, vertex: idx })));
+      L.add(c);
+    });
+  }
+
+  // Acerca la vista a un lote o calle para poder editarlo con comodidad
+  function zoomToShape(sh) {
+    const pts = M.shapePath(sh);
+    const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
+    const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
+    const span = Math.max(maxX - minX, maxY - minY, 1e-6);
+    const s = clampZoom((Math.min(stage.width(), stage.height()) * 0.5) / span);
+    stage.scale({ x: s, y: s });
+    stage.position({ x: stage.width() / 2 - ((minX + maxX) / 2) * s, y: stage.height() / 2 - ((minY + maxY) / 2) * s });
+  }
+
+  function shapeScreenSize(sh) {
+    const pts = M.shapePath(sh);
+    const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
+    return Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)) * zoom();
+  }
+
   // Esquinas arrastrables (solo con la herramienta Seleccionar)
   function renderHandles() {
     const L = layers.handles;
@@ -919,69 +1035,14 @@
         L.add(c);
       }
     }
-    if (tool === 'select' && selection && selection.kind === 'shape') {
+    // Lote o calle seleccionado: sus lados se curvan arrastrándolos y sus vértices se mueven.
+    // También mientras se usan las herramientas Lote y Calle, para retocar sin cambiar de herramienta.
+    const shapeEditing = SHAPE_TOOLS.includes(tool) && selection && selection.kind === 'shape' && !(draft && draft.points.length);
+    if (shapeEditing) {
       const sh = M.level.shapes.find(s => s.id === selection.id);
-      if (sh) {
-        M.normalizeArcs(sh);
-        // Rombo en el medio de cada lado: arrastrarlo curva el lado; doble toque agrega un vértice
-        for (let i = 0; i < M.edgeCount(sh); i++) {
-          const info = M.edgeInfo(sh, i);
-          const isSeg = selection.seg === i;
-          const m = new Konva.Rect({
-            x: info.mid.x, y: info.mid.y, width: px(13), height: px(13), offsetX: px(6.5), offsetY: px(6.5), rotation: 45,
-            fill: isSeg ? COLORS.selected : '#fbbf24', stroke: '#92400e', strokeWidth: px(1.5), hitStrokeWidth: px(26), draggable: true
-          });
-          m.on('dragmove', () => {
-            const cur = M.edgeInfo(sh, i);
-            const p = m.position();
-            const cx = (cur.a.x + cur.b.x) / 2, cy = (cur.a.y + cur.b.y) / 2;
-            let h = (p.x - cx) * cur.nx + (p.y - cy) * cur.ny;
-            if (Math.abs(h) * zoom() < 6) h = 0; // cerca de la cuerda vuelve a ser recto
-            sh.arcs[i] = Math.max(-cur.chord, Math.min(cur.chord, h));
-            renderMain();
-          });
-          m.on('dragend', () => {
-            selection = { kind: 'shape', id: sh.id, seg: i };
-            setTimeout(() => M.commit(), 0);
-          });
-          m.on('click tap', (e) => {
-            e.cancelBubble = true;
-            select({ kind: 'shape', id: sh.id, seg: i });
-          });
-          m.on('dblclick dbltap', (e) => {
-            e.cancelBubble = true;
-            M.insertShapeVertex(sh, i);
-            selection = { kind: 'shape', id: sh.id };
-            M.commit();
-          });
-          L.add(m);
-        }
-        // Vértices: arrastrar los mueve; doble toque los borra
-        sh.points.forEach((p, idx) => {
-          const c = new Konva.Circle({
-            x: p.x, y: p.y, radius: px(7), fill: '#ffffff', stroke: COLORS.lot,
-            strokeWidth: px(2.5), hitStrokeWidth: px(24), draggable: true
-          });
-          c.on('dragmove', () => {
-            const s = snap(c.position(), null, null, p);
-            p.x = s.x; p.y = s.y;
-            c.position({ x: s.x, y: s.y });
-            renderMain();
-          });
-          c.on('dragend', () => setTimeout(() => M.commit(), 0));
-          c.on('dblclick dbltap', (e) => {
-            e.cancelBubble = true;
-            if (M.removeShapeVertex(sh, idx)) {
-              selection = { kind: 'shape', id: sh.id };
-              M.commit();
-            } else {
-              flashHint(sh.kind === 'lote' ? 'Un lote necesita al menos 3 vértices.' : 'Una calle necesita al menos 2 puntos.');
-            }
-          });
-          L.add(c);
-        });
-      }
-    } else if (chainLast && M.node(chainLast)) {
+      if (sh) renderShapeHandles(L, sh);
+    }
+    if (!shapeEditing && chainLast && M.node(chainLast)) {
       const n = M.node(chainLast);
       L.add(new Konva.Circle({ x: n.x, y: n.y, radius: px(6), fill: COLORS.guide, listening: false }));
     }
@@ -1088,7 +1149,17 @@
 
     let textApply = null; // (key, texto) => cambios en el modelo
 
-    if (selection.kind === 'shape' && selection.seg !== undefined) {
+    if (selection.kind === 'shape' && selection.vertex !== undefined) {
+      const sh = P.shapes.find(s => s.id === selection.id);
+      const idx = selection.vertex;
+      if (idx >= sh.points.length) { selection = { kind: 'shape', id: sh.id }; updatePanel(); return; }
+      const min = sh.kind === 'lote' ? 3 : 2;
+      html = `<b class="text-sky-400">Vértice ${idx + 1}</b><span class="text-slate-300">Arrastralo para moverlo.</span>` +
+        (sh.points.length > min ? button('Quitar vértice', 'remove', 'bg-rose-500/20 border-rose-500/40 text-rose-300') : `<span class="text-slate-400">No se puede quitar: es el mínimo.</span>`) +
+        button('Listo', 'back', 'bg-emerald-500/20 border-emerald-500/40 text-emerald-200');
+      actions.remove = () => { M.removeShapeVertex(sh, idx); selection = { kind: 'shape', id: sh.id }; };
+      actions.back = () => { selection = { kind: 'shape', id: sh.id }; return false; };
+    } else if (selection.kind === 'shape' && selection.seg !== undefined) {
       const sh = P.shapes.find(s => s.id === selection.id);
       const i = selection.seg;
       if (i >= M.edgeCount(sh)) { selection = { kind: 'shape', id: sh.id }; updatePanel(); return; }
@@ -1110,7 +1181,7 @@
       actions.curve = () => { sh.arcs[i] = info.h ? -info.h : M.sagittaForRadius(info.chord, info.chord, outward); };
       actions.straight = () => { sh.arcs[i] = 0; };
       actions.vertex = () => { M.insertShapeVertex(sh, i); selection = { kind: 'shape', id: sh.id }; };
-      actions.back = () => { selection = { kind: 'shape', id: sh.id }; };
+      actions.back = () => { selection = { kind: 'shape', id: sh.id }; return false; };
     } else if (selection.kind === 'shape') {
       const sh = P.shapes.find(s => s.id === selection.id);
       const isLote = sh.kind === 'lote';
@@ -1118,8 +1189,9 @@
         <input data-text="name" type="text" value="${sh.name.replace(/"/g, '&quot;')}"
           class="w-32 bg-slate-800 border border-slate-600 rounded px-2 py-1 text-slate-100">` +
         (isLote && metric ? `<span class="text-emerald-400 font-bold">${fmt(M.shapeArea(sh))} m²</span>` : '') +
-        (!isLote && metric ? field('Ancho (m)', 'width', sh.width.toFixed(2), 0.5) : '') + DELETE_BTN +
-        `<span class="w-full text-[10px] text-slate-400">Arrastrá un rombo amarillo para curvar ese lado (tocalo para cargar el radio). Doble toque en un rombo agrega un vértice; doble toque en un vértice lo borra.</span>`;
+        (!isLote && metric ? field('Ancho (m)', 'width', sh.width.toFixed(2), 0.5) : '') +
+        button('Acercar', 'zoom') + DELETE_BTN;
+      actions.zoom = () => { zoomToShape(sh); return false; };
       apply = (key, v) => { if (key === 'width' && v > 0) sh.width = v; };
       textApply = (key, value) => { if (value) sh.name = value; };
     } else if (selection.kind === 'wall') {
@@ -1220,8 +1292,8 @@
     panelEl.querySelectorAll('[data-act]').forEach(btn => {
       btn.addEventListener('click', () => {
         if (btn.dataset.act === 'delete') { E.deleteSelection(); return; }
-        actions[btn.dataset.act]();
-        M.commit();
+        if (actions[btn.dataset.act]() === false) render();
+        else M.commit();
       });
     });
   }

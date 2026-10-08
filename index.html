@@ -211,8 +211,11 @@
             <button id="btn-level-add" title="Agregar piso" class="w-7 h-7 rounded bg-emerald-600 text-white flex items-center justify-center active:scale-95"><i data-lucide="plus" class="w-4 h-4"></i></button>
             <button id="btn-level-rename" title="Renombrar piso" class="w-7 h-7 rounded bg-slate-800 text-slate-200 flex items-center justify-center active:scale-95"><i data-lucide="pencil" class="w-3.5 h-3.5"></i></button>
             <button id="btn-level-delete" title="Eliminar piso" class="w-7 h-7 rounded bg-slate-800 text-rose-300 flex items-center justify-center disabled:opacity-30 active:scale-95"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>
+            <!-- En pantallas chicas las opciones de vista se despliegan con este botón, para no tapar el plano -->
+            <button id="btn-view-options" title="Opciones de vista" class="sm:hidden w-7 h-7 rounded bg-slate-800 text-slate-200 flex items-center justify-center active:scale-95"><i data-lucide="sliders-horizontal" class="w-3.5 h-3.5"></i></button>
           </div>
-          <div class="h-4 w-px bg-slate-700 mx-0.5"></div>
+          <div id="view-options" class="hidden sm:flex flex-wrap items-center gap-1.5">
+          <div class="hidden sm:block h-4 w-px bg-slate-700 mx-0.5"></div>
           <!-- Conmutadores de cotas y m² -->
           <button id="btn-toggle-m2" title="Mostrar / Ocultar m² de ambientes" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-600 text-emerald-400 font-bold text-xs flex items-center gap-1">
             <i data-lucide="square" class="w-3.5 h-3.5"></i><span>m²</span>
@@ -226,6 +229,7 @@
             <option value="blueprint">Técnico CAD (Blueprint)</option>
             <option value="warm">Cálido / Editorial</option>
           </select>
+          </div>
         </div>
 
         <div id="plan-loaded-banner" class="hidden pointer-events-auto glass-panel rounded-lg px-2.5 py-1.5 text-[11px] flex items-center gap-2">

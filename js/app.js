@@ -137,6 +137,12 @@
     $('btn-fit-view').addEventListener('click', () => SA.editor.fitView());
     $('btn-finish-wall').addEventListener('click', () => SA.editor.endChain());
     $('btn-remove-plan-bg').addEventListener('click', () => SA.editor.removePlan());
+    // En pantallas chicas las opciones de vista están plegadas
+    $('btn-view-options').addEventListener('click', () => {
+      const panel = $('view-options');
+      const open = panel.classList.toggle('hidden') === false;
+      panel.classList.toggle('flex', open);
+    });
 
     // Conmutadores de cotas y m²
     $('btn-toggle-m2').addEventListener('click', () => {
