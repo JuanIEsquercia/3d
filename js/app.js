@@ -34,6 +34,7 @@
   function updateMetrics() {
     const P = M.project;
     const L = M.level;
+    const s = P.settings || {};
     const several = P.levels.length > 1;
 
     $('metric-area-label').innerText = several ? 'SUPERFICIE TOTAL' : 'SUPERFICIE';
@@ -57,7 +58,35 @@
     $('btn-undo').disabled = !M.canUndo();
     $('label-level-height').innerText = `Altura ${L.name} (m)`;
     $('input-wall-height').value = L.height.toFixed(2);
-    $('input-wall-thickness').value = P.settings.wallThickness.toFixed(2);
+    $('input-wall-thickness').value = s.wallThickness.toFixed(2);
+
+    // Estado de botones conmutadores
+    const btnM2 = $('btn-toggle-m2');
+    if (btnM2) {
+      btnM2.classList.toggle('bg-emerald-600', s.showM2 !== false);
+      btnM2.classList.toggle('text-white', s.showM2 !== false);
+      btnM2.classList.toggle('bg-slate-800', s.showM2 === false);
+      btnM2.classList.toggle('text-slate-400', s.showM2 === false);
+    }
+    const btnLin = $('btn-toggle-linear');
+    if (btnLin) {
+      btnLin.classList.toggle('bg-sky-600', s.showLinearM !== false);
+      btnLin.classList.toggle('text-white', s.showLinearM !== false);
+      btnLin.classList.toggle('bg-slate-800', s.showLinearM === false);
+      btnLin.classList.toggle('text-slate-400', s.showLinearM === false);
+    }
+    const selectTheme = $('select-theme');
+    if (selectTheme && selectTheme.value !== s.theme) selectTheme.value = s.theme || 'realestate';
+
+    const opacitySlider = $('input-plan-opacity');
+    if (opacitySlider) opacitySlider.value = s.planOpacity !== undefined ? s.planOpacity : 0.65;
+
+    const planVisBtn = $('btn-toggle-plan-vis');
+    if (planVisBtn) {
+      planVisBtn.classList.toggle('text-emerald-400', s.planVisible !== false);
+      planVisBtn.classList.toggle('text-slate-500', s.planVisible === false);
+    }
+
     if (A.activeTab === '3d' && view3dReady) SA.view3d.refresh();
   }
 
@@ -108,6 +137,37 @@
     $('btn-fit-view').addEventListener('click', () => SA.editor.fitView());
     $('btn-finish-wall').addEventListener('click', () => SA.editor.endChain());
     $('btn-remove-plan-bg').addEventListener('click', () => SA.editor.removePlan());
+
+    // Conmutadores de cotas y m²
+    $('btn-toggle-m2').addEventListener('click', () => {
+      M.project.settings.showM2 = M.project.settings.showM2 === false ? true : false;
+      M.commit();
+    });
+
+    $('btn-toggle-linear').addEventListener('click', () => {
+      M.project.settings.showLinearM = M.project.settings.showLinearM === false ? true : false;
+      M.commit();
+    });
+
+    $('select-theme').addEventListener('change', (e) => {
+      M.project.settings.theme = e.target.value;
+      M.commit();
+    });
+
+    $('btn-toggle-plan-vis').addEventListener('click', () => {
+      M.project.settings.planVisible = M.project.settings.planVisible === false ? true : false;
+      M.commit();
+    });
+
+    $('input-plan-opacity').addEventListener('input', (e) => {
+      M.project.settings.planOpacity = parseFloat(e.target.value);
+      SA.editor.render();
+    });
+
+    $('input-plan-opacity').addEventListener('change', (e) => {
+      M.project.settings.planOpacity = parseFloat(e.target.value);
+      M.commit();
+    });
 
     // Selector de objetos, agrupado por categoría
     const grid = $('object-grid');
@@ -161,6 +221,7 @@
       await M.reset();
       SA.editor.setTool('wall');
     });
+    $('btn-export-brochure').addEventListener('click', SA.exporters.exportBrochure);
     $('btn-export-png').addEventListener('click', SA.exporters.exportPNG);
     $('btn-export-dxf').addEventListener('click', SA.exporters.exportDXF);
     $('btn-export-glb').addEventListener('click', SA.exporters.exportGLB);

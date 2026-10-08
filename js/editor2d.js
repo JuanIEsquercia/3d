@@ -6,6 +6,22 @@
   const LIB = SA.library;
 
   const COLORS = { wall: '#1e293b', selected: '#0ea5e9', line: '#334155', dim: '#0369a1', guide: '#f59e0b', lot: '#dc2626', street: '#64748b' };
+
+  function getThemeColors() {
+    const s = (M.project && M.project.settings) || {};
+    const theme = s.theme || 'realestate';
+    if (theme === 'blackwhite') {
+      return { wall: '#000000', selected: '#0ea5e9', line: '#000000', dim: '#334155', guide: '#f59e0b', lot: '#dc2626', street: '#64748b' };
+    }
+    if (theme === 'blueprint') {
+      return { wall: '#1e3a8a', selected: '#38bdf8', line: '#1e40af', dim: '#0284c7', guide: '#f59e0b', lot: '#dc2626', street: '#64748b' };
+    }
+    if (theme === 'warm') {
+      return { wall: '#451a03', selected: '#f59e0b', line: '#78350f', dim: '#b45309', guide: '#10b981', lot: '#dc2626', street: '#64748b' };
+    }
+    return { wall: s.wallColor || '#1e293b', selected: '#0ea5e9', line: '#334155', dim: s.dimColor || '#0369a1', guide: '#f59e0b', lot: '#dc2626', street: '#64748b' };
+  }
+
   const TOUCH = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
   const HINTS = {
     select: 'Tocá un elemento para editarlo. Arrastrá esquinas, muros, aberturas y objetos para moverlos.',
@@ -607,6 +623,7 @@
 
   function renderBg() {
     const P = M.level;
+    const settings = M.project.settings || {};
     layers.bg.destroyChildren();
 
     // Grilla de 1 metro (solo con medidas reales y si no queda demasiado densa)
@@ -641,11 +658,12 @@
       });
     }
 
-    if (P.plan && M.planImage) {
+    if (P.plan && M.planImage && settings.planVisible !== false) {
       const w = M.planImage.width * P.plan.mPerPx;
       const h = M.planImage.height * P.plan.mPerPx;
       planNode = new Konva.Image({
-        image: M.planImage, x: P.plan.x - w / 2, y: P.plan.y - h / 2, width: w, height: h, opacity: 0.6
+        image: M.planImage, x: P.plan.x - w / 2, y: P.plan.y - h / 2, width: w, height: h,
+        opacity: settings.planOpacity !== undefined ? settings.planOpacity : 0.6
       });
       layers.bg.add(planNode);
     }
@@ -657,11 +675,13 @@
     const L = layers.main;
     const metric = M.isMetric();
     const selecting = tool === 'select';
+    const settings = M.project.settings || {};
+    const themeColors = getThemeColors();
     L.destroyChildren();
 
     // Ambientes detectados (caras cerradas entre muros). Sobre una mensura no la tapan:
     // los que no tienen nombre quedan invisibles y los nombrados, semitransparentes.
-    const overPlan = !!(P.plan && M.planImage);
+    const overPlan = !!(P.plan && M.planImage && settings.planVisible !== false);
     M.faces().forEach(face => {
       const rt = LIB.roomType(face.label ? face.label.type : 'otro');
       const isSel = selection && selection.kind === 'room' && M.pointInPoly(selection.point, face.poly);
@@ -669,7 +689,7 @@
       const shape = new Konva.Line({
         points: face.poly.flatMap(p => [p.x, p.y]), closed: true,
         fill: visible ? rt.color : 'rgba(0, 0, 0, 0.002)', opacity: overPlan ? 0.35 : 0.75,
-        stroke: isSel ? COLORS.selected : null, strokeWidth: px(3)
+        stroke: isSel ? themeColors.selected : null, strokeWidth: px(3)
       });
       shape.on('click tap', (e) => {
         if (tool !== 'select') return;
@@ -680,9 +700,13 @@
       if (!visible) return;
 
       const name = face.label ? face.label.name : rt.name;
+      // Superficie: se puede ocultar (global o por ambiente) o reemplazar por un texto manual
+      const showM2 = settings.showM2 !== false && !(face.label && face.label.hideArea);
+      let areaText = '';
+      if (metric && showM2) areaText = `\n${face.label && face.label.customArea ? face.label.customArea : `${fmt(face.area)} m²`}`;
       const text = new Konva.Text({
         x: face.centroid.x, y: face.centroid.y, listening: false, align: 'center',
-        text: metric ? `${name}\n${fmt(face.area)} m²` : name,
+        text: `${name}${areaText}`,
         fontSize: px(12), fontStyle: 'bold', fill: '#0f172a', lineHeight: 1.25
       });
       text.offsetX(text.width() / 2);
@@ -697,7 +721,7 @@
       const a = M.node(w.a), b = M.node(w.b);
       const isSel = selection && selection.kind === 'wall' && selection.id === w.id;
       const line = new Konva.Line({
-        points: [a.x, a.y, b.x, b.y], stroke: isSel ? COLORS.selected : COLORS.wall,
+        points: [a.x, a.y, b.x, b.y], stroke: isSel ? themeColors.selected : themeColors.wall,
         strokeWidth: w.thickness, lineCap: 'square', hitStrokeWidth: Math.max(w.thickness, px(24)),
         draggable: selecting
       });
@@ -745,8 +769,8 @@
       if (selection && selection.kind === 'object' && selection.id === o.id) selectedObjectNode = g;
     });
 
-    // Cotas de cada muro
-    if (metric) {
+    // Cotas de cada muro (se pueden ocultar; cada muro admite un texto de cota manual)
+    if (metric && settings.showLinearM !== false) {
       P.walls.forEach(w => {
         const a = M.node(w.a), b = M.node(w.b);
         const len = Math.hypot(b.x - a.x, b.y - a.y);
@@ -757,7 +781,8 @@
         if (ang > Math.PI / 2 || ang <= -Math.PI / 2) ang += Math.PI;
         const text = new Konva.Text({
           x: (a.x + b.x) / 2 - nx * off, y: (a.y + b.y) / 2 - ny * off,
-          text: `${fmt(len)} m`, fontSize: px(11), fill: COLORS.dim, rotation: (ang * 180) / Math.PI, listening: false
+          text: w.customDim ? w.customDim : `${fmt(len)} m`, fontSize: px(11), fill: themeColors.dim,
+          rotation: (ang * 180) / Math.PI, listening: false
         });
         text.offsetX(text.width() / 2);
         text.offsetY(text.height() / 2);
@@ -1101,10 +1126,17 @@
       const w = M.wall(selection.id);
       html = `<b class="text-sky-400">Muro</b>` +
         (metric ? field('Largo (m)', 'length', M.wallLength(w).toFixed(2), 0.05) : '') +
-        field('Espesor (m)', 'thickness', w.thickness.toFixed(2), 0.05) + DELETE_BTN;
+        field('Espesor (m)', 'thickness', w.thickness.toFixed(2), 0.05) +
+        `<label class="flex items-center gap-1.5 text-slate-300 text-xs">Cota manual
+          <input data-text="customDim" type="text" value="${(w.customDim || '').replace(/"/g, '&quot;')}" placeholder="ej: 5.20 m"
+            class="w-24 bg-slate-800 border border-slate-600 rounded px-2 py-1 text-slate-100 font-mono text-xs"></label>` +
+        DELETE_BTN;
       apply = (key, v) => {
         if (key === 'length') M.setWallLength(w.id, v);
         if (key === 'thickness' && v > 0) w.thickness = v;
+      };
+      textApply = (key, value) => {
+        if (key === 'customDim') w.customDim = value;
       };
     } else if (selection.kind === 'opening') {
       const o = P.openings.find(x => x.id === selection.id);
@@ -1131,10 +1163,17 @@
       if (!face) { panelEl.classList.add('hidden'); return; }
       const current = face.label ? face.label.type : 'otro';
       const options = LIB.ROOM_TYPES.map(r => `<option value="${r.type}" ${r.type === current ? 'selected' : ''}>${r.name}</option>`).join('');
+      const lbl = face.label || {};
       html = `<b class="text-sky-400">Ambiente</b>` + (metric ? `<span class="text-emerald-400 font-bold">${fmt(face.area)} m²</span>` : '') +
         `<select data-room="type" class="bg-slate-800 border border-slate-600 rounded px-2 py-1 text-slate-100">${options}</select>
-         <input data-room="name" type="text" value="${(face.label ? face.label.name : '').replace(/"/g, '&quot;')}" placeholder="Nombre"
-           class="w-28 bg-slate-800 border border-slate-600 rounded px-2 py-1 text-slate-100">`;
+         <input data-room="name" type="text" value="${(lbl.name || '').replace(/"/g, '&quot;')}" placeholder="Nombre"
+           class="w-28 bg-slate-800 border border-slate-600 rounded px-2 py-1 text-slate-100">
+         <input data-room="customArea" type="text" value="${(lbl.customArea || '').replace(/"/g, '&quot;')}" placeholder="m² manual (ej: 18.5 m²)"
+           class="w-36 bg-slate-800 border border-slate-600 rounded px-2 py-1 text-slate-100 text-xs">
+         <label class="flex items-center gap-1.5 text-slate-300 text-xs cursor-pointer">
+           <input data-room="hideArea" type="checkbox" ${lbl.hideArea ? 'checked' : ''} class="rounded bg-slate-800 border-slate-600 text-emerald-500">
+           <span>Ocultar m²</span>
+         </label>`;
       const ensureLabel = () => {
         if (face.label) return P.labels.find(l => l.id === face.label.id);
         const label = { id: M.newId('l'), x: selection.point.x, y: selection.point.y, type: 'otro', name: LIB.roomType('otro').name };
@@ -1152,6 +1191,16 @@
       panelEl.querySelector('[data-room="name"]').addEventListener('change', (e) => {
         const label = ensureLabel();
         label.name = e.target.value.trim() || LIB.roomType(label.type).name;
+        M.commit();
+      });
+      panelEl.querySelector('[data-room="customArea"]').addEventListener('change', (e) => {
+        const label = ensureLabel();
+        label.customArea = e.target.value.trim();
+        M.commit();
+      });
+      panelEl.querySelector('[data-room="hideArea"]').addEventListener('change', (e) => {
+        const label = ensureLabel();
+        label.hideArea = e.target.checked;
         M.commit();
       });
       return;
@@ -1241,7 +1290,7 @@
     selection = null;
 
     // Encuadro lo que se exporta para que textos y trazos queden proporcionados
-    const withPlan = !!(P.plan && M.planImage);
+    const withPlan = !!(P.plan && M.planImage && (M.project.settings || {}).planVisible !== false);
     let area;
     if (withPlan) {
       const w = M.planImage.width * P.plan.mPerPx, h = M.planImage.height * P.plan.mPerPx;

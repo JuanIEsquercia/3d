@@ -27,7 +27,17 @@
       version: 2,
       name: 'Inmueble',
       seq: 2,
-      settings: { wallThickness: 0.15 },
+      settings: {
+        wallThickness: 0.15,
+        showM2: true,
+        showLinearM: true,
+        wallColor: '#1e293b',
+        dimColor: '#0369a1',
+        theme: 'realestate', // 'realestate' | 'blackwhite' | 'blueprint' | 'warm'
+        planOpacity: 0.65,
+        planVisible: true,
+        agencyName: 'ScanArch Real Estate'
+      },
       levels: [emptyLevel('L1', 'Planta baja')],
       active: 0
     };
